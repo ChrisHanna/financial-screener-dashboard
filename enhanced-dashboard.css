@@ -1285,6 +1285,16 @@ body {
     transform: translateY(-1px);
 }
 
+.action-btn.charts {
+    background-color: #9c27b0;
+    border-color: #9c27b0;
+}
+
+.action-btn.charts:hover {
+    background-color: #7b1fa2;
+    border-color: #7b1fa2;
+}
+
 /* Specific Oscillator Section Styling */
 .oscillator-section.analyzer-b {
     background: linear-gradient(135deg, var(--tertiary-bg) 0%, rgba(41, 98, 255, 0.1) 100%);

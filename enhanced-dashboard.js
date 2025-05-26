@@ -109,6 +109,90 @@ document.addEventListener('DOMContentLoaded', function() {
     setupEventListeners();
 });
 
+// Helper function to validate ticker symbols
+function validateTickers(tickerString) {
+    if (!tickerString || tickerString.trim().length === 0) {
+        return { valid: [], invalid: [], message: 'Please enter at least one ticker symbol.' };
+    }
+    
+    const tickers = tickerString.split(',').map(t => t.trim().toUpperCase()).filter(t => t.length > 0);
+    const valid = [];
+    const invalid = [];
+    
+    tickers.forEach(ticker => {
+        // Basic validation rules
+        if (ticker.length === 0) {
+            return; // Skip empty
+        } else if (ticker.length > 10) {
+            invalid.push(`${ticker} (too long)`);
+        } else if (!/^[A-Z0-9\-\.=\^]+$/.test(ticker)) {
+            invalid.push(`${ticker} (invalid characters)`);
+        } else {
+            valid.push(ticker);
+        }
+    });
+    
+    let message = '';
+    if (invalid.length > 0) {
+        message = `Invalid tickers: ${invalid.join(', ')}`;
+    }
+    if (valid.length === 0) {
+        message = 'No valid ticker symbols found.';
+    }
+    
+    return { valid, invalid, message };
+}
+
+// Helper function to validate and map intervals for EODHD API compatibility
+function validateAndMapInterval(interval, period) {
+    console.log('Validating interval:', interval, 'for period:', period);
+    
+    // EODHD API interval mapping and validation
+    const validIntervals = {
+        // Intraday intervals (require period ≤ 60 days for most)
+        '1m': { eodhd: '1m', maxPeriod: '60d', type: 'intraday' },
+        '5m': { eodhd: '5m', maxPeriod: '60d', type: 'intraday' },
+        '15m': { eodhd: '15m', maxPeriod: '60d', type: 'intraday' },
+        '30m': { eodhd: '30m', maxPeriod: '60d', type: 'intraday' },
+        '1h': { eodhd: '1h', maxPeriod: '730d', type: 'intraday' }, // ~2 years max for hourly
+        
+        // Daily and longer intervals
+        '1d': { eodhd: '1d', maxPeriod: 'max', type: 'daily' },
+        '1wk': { eodhd: '1wk', maxPeriod: 'max', type: 'weekly' },
+        '1mo': { eodhd: '1mo', maxPeriod: 'max', type: 'monthly' }
+    };
+    
+    const intervalConfig = validIntervals[interval];
+    
+    if (!intervalConfig) {
+        return {
+            valid: false,
+            message: `Unsupported interval: ${interval}`,
+            eodhd: '1d' // fallback
+        };
+    }
+    
+    // Check period compatibility for intraday data
+    if (intervalConfig.type === 'intraday') {
+        const problematicPeriods = ['1y', '2y', '5y', 'max'];
+        if (problematicPeriods.includes(period)) {
+            return {
+                valid: false,
+                message: `Intraday interval ${interval} is not compatible with period ${period}. Use periods ≤ 6 months for intraday data.`,
+                suggestion: 'Switch to daily interval or reduce the period to 6 months or less.',
+                eodhd: intervalConfig.eodhd
+            };
+        }
+    }
+    
+    return {
+        valid: true,
+        eodhd: intervalConfig.eodhd,
+        type: intervalConfig.type,
+        maxPeriod: intervalConfig.maxPeriod
+    };
+}
+
 function initDashboard() {
     const savedTickers = localStorage.getItem('enhancedDashboardTickers');
     const tickerInput = document.getElementById('tickerInput');
@@ -124,11 +208,27 @@ function initDashboard() {
 }
 
 function setupEventListeners() {
-    // Existing event listeners
+    // Existing event listeners with validation
     document.getElementById('addTickers').addEventListener('click', () => {
         const tickers = document.getElementById('tickerInput').value.trim();
         if (tickers) {
-            fetchTickersData(tickers);
+            // Validate tickers before making API call
+            const validation = validateTickers(tickers);
+            
+            if (validation.valid.length === 0) {
+                showAlert(validation.message, 'error');
+                return;
+            }
+            
+            if (validation.invalid.length > 0) {
+                showAlert(validation.message, 'warning');
+                // Continue with valid tickers only
+            }
+            
+            console.log('Validated tickers:', validation.valid);
+            fetchTickersData(validation.valid);
+        } else {
+            showAlert('Please enter ticker symbols separated by commas (e.g., AAPL, MSFT, UNH)', 'info');
         }
     });
 
@@ -136,13 +236,50 @@ function setupEventListeners() {
         if (e.key === 'Enter') {
             const tickers = e.target.value.trim();
             if (tickers) {
-                fetchTickersData(tickers);
+                // Validate tickers before making API call
+                const validation = validateTickers(tickers);
+                
+                if (validation.valid.length === 0) {
+                    showAlert(validation.message, 'error');
+                    return;
+                }
+                
+                if (validation.invalid.length > 0) {
+                    showAlert(validation.message, 'warning');
+                    // Continue with valid tickers only
+                }
+                
+                console.log('Validated tickers:', validation.valid);
+                fetchTickersData(validation.valid);
+            } else {
+                showAlert('Please enter ticker symbols separated by commas (e.g., AAPL, MSFT, UNH)', 'info');
             }
         }
     });
 
     document.getElementById('clearCacheBtn').addEventListener('click', clearCache);
     document.getElementById('sortSelector').addEventListener('change', applyFiltersAndSort);
+
+    // Add interval selector validation and tips
+    document.getElementById('intervalSelector').addEventListener('change', function() {
+        const interval = this.value;
+        const period = document.getElementById('periodSelector').value;
+        const validation = validateAndMapInterval(interval, period);
+        
+        if (!validation.valid) {
+            showAlert(validation.message, 'warning');
+            if (validation.suggestion) {
+                setTimeout(() => {
+                    showAlert(`💡 ${validation.suggestion}`, 'info');
+                }, 1000);
+            }
+        } else {
+            // Show helpful tips for intraday trading
+            if (validation.type === 'intraday') {
+                showAlert(`📈 Intraday ${interval} selected. Perfect for day trading and scalping strategies!`, 'info');
+            }
+        }
+    });
 
     // Enhanced filter event listeners for oscillator-specific filters
     
@@ -266,28 +403,200 @@ function fetchTickersData(tickers) {
     
     console.log('Period:', period, 'Interval:', interval);
     
+    // Validate interval compatibility with EODHD API
+    const intervalValidation = validateAndMapInterval(interval, period);
+    
+    if (!intervalValidation.valid) {
+        showAlert(intervalValidation.message, 'warning');
+        if (intervalValidation.suggestion) {
+            setTimeout(() => {
+                showAlert(`💡 Suggestion: ${intervalValidation.suggestion}`, 'info');
+            }, 1500);
+        }
+        
+        // Auto-adjust to daily if intraday conflicts with long period
+        if (intervalValidation.suggestion && intervalValidation.suggestion.includes('daily')) {
+            console.log('Auto-adjusting to daily interval');
+            document.getElementById('intervalSelector').value = '1d';
+            setTimeout(() => {
+                showAlert('✅ Automatically switched to daily interval for compatibility', 'success');
+                // Retry with daily interval
+                fetchTickersData(tickers);
+            }, 2500);
+            return;
+        }
+    }
+    
     document.getElementById('loading').style.display = 'flex';
     
-    const apiUrl = `/api/multi-ticker?tickers=${tickers.join(',')}&period=${period}&interval=${interval}`;
+    // Use the validated/mapped interval for the API call
+    const apiInterval = intervalValidation.eodhd || interval;
+    const apiUrl = `/api/multi-ticker?tickers=${tickers.join(',')}&period=${period}&interval=${apiInterval}`;
     console.log('API URL:', apiUrl);
+    console.log('EODHD interval mapping:', interval, '→', apiInterval);
+    
+    // Add timeout to prevent indefinite loading
+    const timeoutId = setTimeout(() => {
+        console.error('API request timed out after 30 seconds');
+        document.getElementById('loading').style.display = 'none';
+        showAlert('Request timed out. Please try again or check if the ticker symbols are valid.', 'error');
+    }, 30000); // 30 second timeout
     
     fetch(apiUrl)
         .then(response => {
+            clearTimeout(timeoutId); // Clear timeout since we got a response
             console.log('API Response status:', response.status);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
             return response.json();
         })
         .then(data => {
             console.log('API Response data:', data);
+            
+            // Check if we have any successful results
+            if (!data || !data.results || Object.keys(data.results).length === 0) {
+                console.warn('No data returned for any tickers');
+                showAlert('No data found for the provided ticker symbols. Please check if they are valid.', 'warning');
+                
+                // If we have errors, show them
+                if (data.errors && Object.keys(data.errors).length > 0) {
+                    const errorMessages = Object.entries(data.errors)
+                        .map(([ticker, error]) => `${ticker}: ${error}`)
+                        .join('\n');
+                    console.error('API errors:', data.errors);
+                    showAlert(`Ticker errors:\n${errorMessages}`, 'error');
+                }
+                return;
+            }
+            
+            // Store the data and render
             tickersData = data;
             renderTickersGrid(data);
             updateTimestamp();
+            
+            // Save successful tickers to localStorage
+            const successfulTickers = Object.keys(data.results);
+            if (successfulTickers.length > 0) {
+                localStorage.setItem('enhancedDashboardTickers', successfulTickers.join(','));
+                document.getElementById('tickerInput').value = successfulTickers.join(',');
+            }
+            
+            // Show warnings for any failed tickers
+            if (data.errors && Object.keys(data.errors).length > 0) {
+                const errorCount = Object.keys(data.errors).length;
+                const successCount = Object.keys(data.results).length;
+                console.warn(`${errorCount} ticker(s) failed, ${successCount} succeeded`);
+                
+                // 🔄 AUTO-RETRY FEATURE: Try failed tickers with .US suffix
+                const retryableTickers = [];
+                const nonRetryableErrors = [];
+                
+                Object.entries(data.errors).forEach(([ticker, error]) => {
+                    if (!ticker.includes('.') && !ticker.includes('/') && !ticker.includes('-')) {
+                        // Plain format ticker - can retry with .US
+                        retryableTickers.push(ticker + '.US');
+                        console.log(`🔄 Queuing retry: ${ticker} → ${ticker}.US`);
+                    } else {
+                        nonRetryableErrors.push(`${ticker}: ${error}`);
+                    }
+                });
+                
+                if (retryableTickers.length > 0) {
+                    console.log(`🔄 Auto-retrying ${retryableTickers.length} tickers with .US suffix:`, retryableTickers);
+                    showAlert(`🔄 Auto-retrying ${retryableTickers.length} ticker(s) with .US suffix...`, 'info');
+                    
+                    const retryApiUrl = `/api/multi-ticker?tickers=${retryableTickers.join(',')}&period=${period}&interval=${apiInterval}`;
+                    
+                    fetch(retryApiUrl)
+                        .then(response => response.ok ? response.json() : Promise.reject(response))
+                        .then(retryData => {
+                            console.log('🔄 Retry API Response:', retryData);
+                            
+                            if (retryData.results && Object.keys(retryData.results).length > 0) {
+                                // Merge successful retry results with original successful results
+                                const combinedResults = { ...data.results, ...retryData.results };
+                                const successfulRetries = Object.keys(retryData.results);
+                                const retryMappings = successfulRetries.map(ticker => 
+                                    `${ticker.replace('.US', '')} → ${ticker}`
+                                );
+                                
+                                // Update with combined data
+                                const combinedData = { 
+                                    results: combinedResults, 
+                                    errors: retryData.errors || {} 
+                                };
+                                tickersData = combinedData;
+                                renderTickersGrid(combinedData);
+                                updateTimestamp();
+                                
+                                // Update ticker input and localStorage
+                                const allSuccessfulTickers = Object.keys(combinedResults);
+                                document.getElementById('tickerInput').value = allSuccessfulTickers.join(',');
+                                localStorage.setItem('enhancedDashboardTickers', allSuccessfulTickers.join(','));
+                                
+                                showAlert(`✅ Auto-retry successful! Fixed ${successfulRetries.length} ticker(s):\n${retryMappings.join('\n')}`, 'success');
+                                
+                                // Show any remaining errors after retry
+                                const remainingErrors = Object.keys(retryData.errors || {});
+                                if (remainingErrors.length > 0) {
+                                    setTimeout(() => {
+                                        const errorList = remainingErrors.map(ticker => 
+                                            `${ticker.replace('.US', '')}: Failed even with .US suffix`
+                                        ).join('\n');
+                                        showAlert(`Some tickers still failed:\n${errorList}`, 'warning');
+                                    }, 2000);
+                                }
+                            } else {
+                                // Retry didn't return any results
+                                console.log('❌ Auto-retry returned no results');
+                                const failedTickers = Object.keys(data.errors).join(', ');
+                                showAlert(`Warning: Could not load data for: ${failedTickers}. Auto-retry with .US suffix also failed.`, 'warning');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('❌ Auto-retry request failed:', error);
+                            const failedTickers = Object.keys(data.errors).join(', ');
+                            showAlert(`Warning: Could not load data for: ${failedTickers}. Auto-retry failed.`, 'warning');
+                        });
+                } else {
+                    // No retryable tickers - show original error
+                    const failedTickers = Object.keys(data.errors).join(', ');
+                    showAlert(`Warning: Could not load data for: ${failedTickers}. Other tickers loaded successfully.`, 'warning');
+                }
+            }
         })
         .catch(error => {
+            clearTimeout(timeoutId); // Clear timeout
             console.error('Error fetching data:', error);
-            showAlert('Error fetching data. Please try again.', 'error');
+            
+            // More specific error messages
+            let errorMessage = 'Error fetching data. ';
+            if (error.message.includes('Failed to fetch')) {
+                errorMessage += 'Network error - please check your connection.';
+            } else if (error.message.includes('500')) {
+                errorMessage += 'Server error - please try again later.';
+            } else if (error.message.includes('404')) {
+                errorMessage += 'API endpoint not found.';
+            } else if (error.message.includes('timeout')) {
+                errorMessage += 'Request timed out - server may be overloaded.';
+            } else {
+                errorMessage += error.message || 'Please try again.';
+            }
+            
+            showAlert(errorMessage, 'error');
+            
+            // Provide helpful suggestions
+            setTimeout(() => {
+                showAlert('💡 Tips: Ensure ticker symbols are valid (e.g., AAPL, MSFT, TSLA). Try one ticker at a time if multiple fail.', 'info');
+            }, 2000);
         })
         .finally(() => {
+            // Always hide loading spinner
             document.getElementById('loading').style.display = 'none';
+            console.log('Loading spinner hidden');
         });
 }
 
@@ -840,6 +1149,9 @@ function renderTickersGrid(data) {
                     </button>
                     <button class="action-btn sac-analysis" onclick="showSACAnalysis('${ticker}')">
                         <i class="bi bi-robot"></i> SAC Insights
+                    </button>
+                    <button class="action-btn charts" onclick="openOscillatorCharts('${ticker}')">
+                        <i class="bi bi-graph-down"></i> Oscillator Charts
                     </button>
                 </div>
                 
@@ -3542,3 +3854,1965 @@ function createSignalTimeline(tickerData) {
     
     return finalSignals;
 }
+
+// === OSCILLATOR CHART CREATION FUNCTIONS ===
+
+// Global chart instances for oscillator charts
+let detailedWtChart, detailedMfChart, detailedTrendExhaustChart;
+let detailedMACDChart, detailedBollingerChart, detailedADXChart;
+
+function createOscillatorCharts(ticker, data) {
+    console.log('Creating oscillator charts for', ticker);
+    console.log('Available data keys:', Object.keys(data));
+    console.log('Sample data structure:', {
+        dates: data.dates?.length,
+        WT1: data.WT1?.length,
+        WT2: data.WT2?.length,
+        moneyFlow: data.moneyFlow?.length,
+        trendExhaust: data.trendExhaust ? Object.keys(data.trendExhaust) : 'none'
+    });
+    
+    // Clean up existing charts
+    if (detailedWtChart) {
+        detailedWtChart.destroy();
+        detailedWtChart = null;
+    }
+    if (detailedMfChart) {
+        detailedMfChart.destroy();
+        detailedMfChart = null;
+    }
+    if (detailedTrendExhaustChart) {
+        detailedTrendExhaustChart.destroy();
+        detailedTrendExhaustChart = null;
+    }
+    
+    // Only create the three main oscillator charts
+    createWaveTrendChart(data);
+    createMoneyFlowChart(data);
+    createTrendExhaustChart(data);
+}
+
+function createWaveTrendChart(data) {
+    const wtCtx = document.getElementById('detailedWtChart');
+    if (!wtCtx) {
+        console.log('detailedWtChart element not found');
+        return;
+    }
+    
+    const dates = data.dates?.map(d => new Date(d)) || [];
+    const wt1Data = data.WT1 || [];
+    const wt2Data = data.WT2 || [];
+    
+    console.log('Wave Trend Chart Data:', {
+        dates: dates.length,
+        wt1Data: wt1Data.length,
+        wt2Data: wt2Data.length,
+        sampleWT1: wt1Data.slice(0, 3),
+        sampleWT2: wt2Data.slice(0, 3)
+    });
+    
+    if (dates.length === 0 || wt1Data.length === 0 || wt2Data.length === 0) {
+        console.log('Insufficient data for Wave Trend chart');
+        // Show a message in the chart area
+        wtCtx.getContext('2d').fillStyle = '#e0e0e0';
+        wtCtx.getContext('2d').font = '16px Arial';
+        wtCtx.getContext('2d').fillText('No Wave Trend data available', 50, 100);
+        return;
+    }
+    
+    // Create datasets
+    const datasets = [
+        {
+            label: 'WT1',
+            data: wt1Data.map((val, i) => ({ x: dates[i], y: val })),
+            borderColor: '#2962ff',
+            backgroundColor: 'rgba(41, 98, 255, 0.1)',
+            borderWidth: 2,
+            fill: false,
+            pointRadius: 0,
+            tension: 0.1
+        },
+        {
+            label: 'WT2',
+            data: wt2Data.map((val, i) => ({ x: dates[i], y: val })),
+            borderColor: '#ff5252',
+            backgroundColor: 'rgba(255, 82, 82, 0.1)',
+            borderWidth: 2,
+            fill: false,
+            pointRadius: 0,
+            tension: 0.1
+        }
+    ];
+    
+    // Add signal points if available
+    if (data.buySignals && data.buySignals.length > 0) {
+        const buySignalData = data.buySignals.map(index => ({
+            x: dates[index],
+            y: wt1Data[index]
+        })).filter(point => point.x && point.y !== undefined);
+        
+        datasets.push({
+            label: 'Buy Signals',
+            data: buySignalData,
+            backgroundColor: '#00ff0a',
+            borderColor: '#00ff0a',
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            showLine: false,
+            type: 'scatter'
+        });
+    }
+    
+    if (data.goldBuySignals && data.goldBuySignals.length > 0) {
+        const goldBuySignalData = data.goldBuySignals.map(index => ({
+            x: dates[index],
+            y: wt1Data[index]
+        })).filter(point => point.x && point.y !== undefined);
+        
+        datasets.push({
+            label: 'Gold Buy Signals',
+            data: goldBuySignalData,
+            backgroundColor: '#FFD700',
+            borderColor: '#FFD700',
+            pointRadius: 8,
+            pointHoverRadius: 10,
+            showLine: false,
+            type: 'scatter'
+        });
+    }
+    
+    if (data.sellSignals && data.sellSignals.length > 0) {
+        const sellSignalData = data.sellSignals.map(index => ({
+            x: dates[index],
+            y: wt1Data[index]
+        })).filter(point => point.x && point.y !== undefined);
+        
+        datasets.push({
+            label: 'Sell Signals',
+            data: sellSignalData,
+            backgroundColor: '#ff1100',
+            borderColor: '#ff1100',
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            showLine: false,
+            type: 'scatter'
+        });
+    }
+    
+    detailedWtChart = new Chart(wtCtx, {
+        type: 'line',
+        data: {
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: '#e0e0e0' }
+                },
+                title: {
+                    display: true,
+                    text: 'Wave Trend Oscillator (Analyzer B)',
+                    color: '#e0e0e0'
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: 'day' },
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                },
+                y: {
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                }
+            },
+            plugins: {
+                annotation: {
+                    annotations: {
+                        overboughtLine: {
+                            type: 'line',
+                            yMin: 60,
+                            yMax: 60,
+                            borderColor: 'rgba(255, 82, 82, 0.5)',
+                            borderWidth: 1,
+                            borderDash: [5, 5],
+                            label: {
+                                content: 'Overbought (60)',
+                                enabled: true,
+                                position: 'end'
+                            }
+                        },
+                        oversoldLine: {
+                            type: 'line',
+                            yMin: -60,
+                            yMax: -60,
+                            borderColor: 'rgba(60, 255, 0, 0.5)',
+                            borderWidth: 1,
+                            borderDash: [5, 5],
+                            label: {
+                                content: 'Oversold (-60)',
+                                enabled: true,
+                                position: 'end'
+                            }
+                        },
+                        zeroLine: {
+                            type: 'line',
+                            yMin: 0,
+                            yMax: 0,
+                            borderColor: 'rgba(255, 255, 255, 0.3)',
+                            borderWidth: 1
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function createMoneyFlowChart(data) {
+    const mfCtx = document.getElementById('detailedMfChart');
+    if (!mfCtx) {
+        console.log('detailedMfChart element not found');
+        return;
+    }
+    
+    const dates = data.dates?.map(d => new Date(d)) || [];
+    const mfData = data.moneyFlow || [];
+    
+    console.log('Money Flow Chart Data:', {
+        dates: dates.length,
+        mfData: mfData.length,
+        sampleMF: mfData.slice(0, 3)
+    });
+    
+    if (dates.length === 0 || mfData.length === 0) {
+        console.log('No Money Flow data available');
+        // Show a message in the chart area
+        const ctx = mfCtx.getContext('2d');
+        ctx.fillStyle = '#e0e0e0';
+        ctx.font = '16px Arial';
+        ctx.fillText('No Money Flow data available', 50, 100);
+        return;
+    }
+    
+    // Ensure dates and data arrays are same length
+    const minLength = Math.min(dates.length, mfData.length);
+    const chartDates = dates.slice(0, minLength);
+    const chartData = mfData.slice(0, minLength);
+    
+    detailedMfChart = new Chart(mfCtx, {
+        type: 'line',
+        data: {
+            datasets: [{
+                label: 'Money Flow',
+                data: chartData.map((val, i) => ({ x: chartDates[i], y: val })),
+                borderColor: '#00ff0a',
+                backgroundColor: 'rgba(0, 255, 10, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                pointRadius: 0,
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: '#e0e0e0' }
+                },
+                title: {
+                    display: true,
+                    text: 'Money Flow Index',
+                    color: '#e0e0e0'
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: 'day' },
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                },
+                y: {
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                }
+            },
+            plugins: {
+                annotation: {
+                    annotations: {
+                        zeroLine: {
+                            type: 'line',
+                            yMin: 0,
+                            yMax: 0,
+                            borderColor: 'rgba(255, 255, 255, 0.3)',
+                            borderWidth: 1
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function createTrendExhaustChart(data) {
+    const exhaustCtx = document.getElementById('detailedTrendExhaustChart');
+    if (!exhaustCtx) {
+        console.log('detailedTrendExhaustChart element not found');
+        return;
+    }
+    
+    const exhaustionData = data.trendExhaust;
+    console.log('TrendExhaust Chart Data:', {
+        exhaustionData: exhaustionData ? Object.keys(exhaustionData) : 'none',
+        avgPercentR: exhaustionData?.avgPercentR?.length,
+        dates: exhaustionData?.dates?.length || data.dates?.length
+    });
+    
+    if (!exhaustionData || !exhaustionData.avgPercentR || exhaustionData.avgPercentR.length === 0) {
+        console.log('No TrendExhaust data available');
+        // Show a message in the chart area
+        const ctx = exhaustCtx.getContext('2d');
+        ctx.fillStyle = '#e0e0e0';
+        ctx.font = '16px Arial';
+        ctx.fillText('No TrendExhaust data available', 50, 100);
+        return;
+    }
+    
+    const dates = (exhaustionData.dates || data.dates)?.map(d => new Date(d)) || [];
+    const percentRData = exhaustionData.avgPercentR;
+    
+    // Ensure dates and data arrays are same length
+    const minLength = Math.min(dates.length, percentRData.length);
+    const chartDates = dates.slice(0, minLength);
+    const chartData = percentRData.slice(0, minLength);
+    
+    console.log('TrendExhaust Final Data:', {
+        chartDates: chartDates.length,
+        chartData: chartData.length,
+        sampleData: chartData.slice(0, 3)
+    });
+    
+    const datasets = [{
+        label: 'Williams %R',
+        data: chartData.map((val, i) => ({ x: chartDates[i], y: val })),
+        borderColor: '#ff9500',
+        backgroundColor: 'rgba(255, 149, 0, 0.1)',
+        borderWidth: 2,
+        fill: true,
+        pointRadius: 0,
+        tension: 0.1
+    }];
+    
+    // Add exhaustion signal points if available
+    if (exhaustionData.signals) {
+        const signals = exhaustionData.signals;
+        
+        // Overbought reversal signals
+        if (signals.obReversal && signals.obReversal.length > 0) {
+            const obSignalData = signals.obReversal.map(index => ({
+                x: chartDates[index],
+                y: chartData[index]
+            })).filter(point => point.x && point.y !== undefined);
+            
+            datasets.push({
+                label: 'Overbought Reversal',
+                data: obSignalData,
+                backgroundColor: '#ff4444',
+                borderColor: '#ff4444',
+                pointRadius: 6,
+                pointHoverRadius: 8,
+                showLine: false,
+                type: 'scatter'
+            });
+        }
+        
+        // Oversold reversal signals
+        if (signals.osReversal && signals.osReversal.length > 0) {
+            const osSignalData = signals.osReversal.map(index => ({
+                x: chartDates[index],
+                y: chartData[index]
+            })).filter(point => point.x && point.y !== undefined);
+            
+            datasets.push({
+                label: 'Oversold Reversal',
+                data: osSignalData,
+                backgroundColor: '#44ff44',
+                borderColor: '#44ff44',
+                pointRadius: 6,
+                pointHoverRadius: 8,
+                showLine: false,
+                type: 'scatter'
+            });
+        }
+    }
+    
+    detailedTrendExhaustChart = new Chart(exhaustCtx, {
+        type: 'line',
+        data: {
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: '#e0e0e0' }
+                },
+                title: {
+                    display: true,
+                    text: 'TrendExhaust Oscillator (Williams %R)',
+                    color: '#e0e0e0'
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: 'day' },
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                },
+                y: {
+                    min: -100,
+                    max: 0,
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                }
+            },
+            plugins: {
+                annotation: {
+                    annotations: {
+                        overboughtLine: {
+                            type: 'line',
+                            yMin: -20, yMax: -20,
+                            borderColor: 'rgba(255, 82, 82, 0.7)',
+                            borderWidth: 2, borderDash: [5, 5]
+                        },
+                        oversoldLine: {
+                            type: 'line',
+                            yMin: -80, yMax: -80,
+                            borderColor: 'rgba(60, 255, 0, 0.7)',
+                            borderWidth: 2, borderDash: [5, 5]
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function createMACDChart(data) {
+    const macdCtx = document.getElementById('detailedMACDChart');
+    if (!macdCtx) return;
+    
+    // Calculate MACD if not provided
+    const prices = data.price || [];
+    const dates = data.dates.map(d => new Date(d));
+    
+    const macdData = calculateMACD(prices);
+    
+    detailedMACDChart = new Chart(macdCtx, {
+        type: 'line',
+        data: {
+            labels: dates,
+            datasets: [
+                {
+                    label: 'MACD',
+                    data: macdData.macd.map((val, i) => ({ x: dates[i], y: val })),
+                    borderColor: '#2962ff',
+                    backgroundColor: 'rgba(41, 98, 255, 0.1)',
+                    borderWidth: 2,
+                    fill: false,
+                    pointRadius: 0,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Signal',
+                    data: macdData.signal.map((val, i) => ({ x: dates[i], y: val })),
+                    borderColor: '#ff5252',
+                    backgroundColor: 'rgba(255, 82, 82, 0.1)',
+                    borderWidth: 1,
+                    fill: false,
+                    pointRadius: 0,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Histogram',
+                    data: macdData.histogram.map((val, i) => ({ x: dates[i], y: val })),
+                    backgroundColor: macdData.histogram.map(val => val >= 0 ? 'rgba(60, 255, 0, 0.6)' : 'rgba(255, 82, 82, 0.6)'),
+                    type: 'bar',
+                    yAxisID: 'y'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: '#e0e0e0' }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: 'day' },
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                },
+                y: {
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                }
+            }
+        }
+    });
+}
+
+function createBollingerChart(data) {
+    const bollCtx = document.getElementById('detailedBollingerChart');
+    if (!bollCtx) return;
+    
+    const prices = data.price || [];
+    const dates = data.dates.map(d => new Date(d));
+    
+    const bollingerData = calculateBollingerBands(prices);
+    
+    detailedBollingerChart = new Chart(bollCtx, {
+        type: 'line',
+        data: {
+            labels: dates,
+            datasets: [
+                {
+                    label: 'Price',
+                    data: prices.map((val, i) => ({ x: dates[i], y: val })),
+                    borderColor: '#ffffff',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    borderWidth: 2,
+                    fill: false,
+                    pointRadius: 0
+                },
+                {
+                    label: 'Upper Band',
+                    data: bollingerData.upper.map((val, i) => ({ x: dates[i], y: val })),
+                    borderColor: '#26a69a',
+                    backgroundColor: 'rgba(38, 166, 154, 0.1)',
+                    borderWidth: 1,
+                    borderDash: [5, 5],
+                    fill: false,
+                    pointRadius: 0
+                },
+                {
+                    label: 'Middle Band (SMA)',
+                    data: bollingerData.middle.map((val, i) => ({ x: dates[i], y: val })),
+                    borderColor: '#26a69a',
+                    backgroundColor: 'rgba(38, 166, 154, 0.1)',
+                    borderWidth: 2,
+                    fill: false,
+                    pointRadius: 0
+                },
+                {
+                    label: 'Lower Band',
+                    data: bollingerData.lower.map((val, i) => ({ x: dates[i], y: val })),
+                    borderColor: '#26a69a',
+                    backgroundColor: 'rgba(38, 166, 154, 0.1)',
+                    borderWidth: 1,
+                    borderDash: [5, 5],
+                    fill: false,
+                    pointRadius: 0
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: '#e0e0e0' }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: 'day' },
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                },
+                y: {
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                }
+            }
+        }
+    });
+}
+
+function createADXChart(data) {
+    const adxCtx = document.getElementById('detailedADXChart');
+    if (!adxCtx) return;
+    
+    const prices = data.price || [];
+    const highs = data.high || prices;
+    const lows = data.low || prices;
+    const dates = data.dates.map(d => new Date(d));
+    
+    const adxData = calculateADX(highs, lows, prices);
+    
+    detailedADXChart = new Chart(adxCtx, {
+        type: 'line',
+        data: {
+            labels: dates,
+            datasets: [
+                {
+                    label: 'ADX',
+                    data: adxData.adx.map((val, i) => ({ x: dates[i], y: val })),
+                    borderColor: '#e2a400',
+                    backgroundColor: 'rgba(226, 164, 0, 0.1)',
+                    borderWidth: 2,
+                    fill: false,
+                    pointRadius: 0
+                },
+                {
+                    label: '+DI',
+                    data: adxData.plusDI.map((val, i) => ({ x: dates[i], y: val })),
+                    borderColor: '#26a69a',
+                    backgroundColor: 'rgba(38, 166, 154, 0.1)',
+                    borderWidth: 1,
+                    fill: false,
+                    pointRadius: 0
+                },
+                {
+                    label: '-DI',
+                    data: adxData.minusDI.map((val, i) => ({ x: dates[i], y: val })),
+                    borderColor: '#ef5350',
+                    backgroundColor: 'rgba(239, 83, 80, 0.1)',
+                    borderWidth: 1,
+                    fill: false,
+                    pointRadius: 0
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: '#e0e0e0' }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: 'day' },
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                },
+                y: {
+                    min: 0,
+                    max: 100,
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: 'rgba(160, 160, 160, 0.1)' }
+                }
+            },
+            annotation: {
+                annotations: {
+                    trendLine: {
+                        type: 'line',
+                        yMin: 25,
+                        yMax: 25,
+                        borderColor: 'rgba(255, 255, 255, 0.5)',
+                        borderWidth: 1,
+                        borderDash: [5, 5],
+                        label: {
+                            content: 'Trend Threshold (25)',
+                            enabled: true,
+                            position: 'end'
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Technical Analysis Helper Functions
+function calculateMACD(prices, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+    const fastEMA = calculateEMA(prices, fastPeriod);
+    const slowEMA = calculateEMA(prices, slowPeriod);
+    const macd = fastEMA.map((fast, i) => fast - slowEMA[i]);
+    const signal = calculateEMA(macd, signalPeriod);
+    const histogram = macd.map((m, i) => m - signal[i]);
+    
+    return { macd, signal, histogram };
+}
+
+function calculateBollingerBands(prices, period = 20, stdDev = 2) {
+    const sma = calculateSMA(prices, period);
+    const upper = [];
+    const lower = [];
+    
+    for (let i = 0; i < prices.length; i++) {
+        if (i >= period - 1) {
+            const slice = prices.slice(i - period + 1, i + 1);
+            const mean = slice.reduce((a, b) => a + b) / slice.length;
+            const variance = slice.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / slice.length;
+            const std = Math.sqrt(variance);
+            
+            upper.push(sma[i] + (stdDev * std));
+            lower.push(sma[i] - (stdDev * std));
+        } else {
+            upper.push(0);
+            lower.push(0);
+        }
+    }
+    
+    return { upper, middle: sma, lower };
+}
+
+function calculateADX(highs, lows, closes, period = 14) {
+    const plusDM = [];
+    const minusDM = [];
+    const tr = [];
+    
+    // Calculate True Range and Directional Movement
+    for (let i = 1; i < highs.length; i++) {
+        const highDiff = highs[i] - highs[i - 1];
+        const lowDiff = lows[i - 1] - lows[i];
+        
+        plusDM.push(highDiff > lowDiff && highDiff > 0 ? highDiff : 0);
+        minusDM.push(lowDiff > highDiff && lowDiff > 0 ? lowDiff : 0);
+        
+        const trValue = Math.max(
+            highs[i] - lows[i],
+            Math.abs(highs[i] - closes[i - 1]),
+            Math.abs(lows[i] - closes[i - 1])
+        );
+        tr.push(trValue);
+    }
+    
+    const plusDMSmoothed = calculateEMA(plusDM, period);
+    const minusDMSmoothed = calculateEMA(minusDM, period);
+    const trSmoothed = calculateEMA(tr, period);
+    
+    const plusDI = plusDMSmoothed.map((dm, i) => (dm / trSmoothed[i]) * 100);
+    const minusDI = minusDMSmoothed.map((dm, i) => (dm / trSmoothed[i]) * 100);
+    
+    const dx = plusDI.map((plus, i) => {
+        const sum = plus + minusDI[i];
+        const diff = Math.abs(plus - minusDI[i]);
+        return sum === 0 ? 0 : (diff / sum) * 100;
+    });
+    
+    const adx = calculateEMA(dx, period);
+    
+    // Pad arrays to match original length
+    const padLength = highs.length - adx.length;
+    const paddedADX = new Array(padLength).fill(0).concat(adx);
+    const paddedPlusDI = new Array(padLength).fill(0).concat(plusDI);
+    const paddedMinusDI = new Array(padLength).fill(0).concat(minusDI);
+    
+    return { adx: paddedADX, plusDI: paddedPlusDI, minusDI: paddedMinusDI };
+}
+
+function calculateSMA(data, period) {
+    const sma = [];
+    for (let i = 0; i < data.length; i++) {
+        if (i >= period - 1) {
+            const slice = data.slice(i - period + 1, i + 1);
+            const average = slice.reduce((a, b) => a + b) / slice.length;
+            sma.push(average);
+        } else {
+            sma.push(0);
+        }
+    }
+    return sma;
+}
+
+function calculateEMA(data, period) {
+    const ema = [];
+    const multiplier = 2 / (period + 1);
+    
+    // Start with SMA for first value
+    let sum = 0;
+    for (let i = 0; i < Math.min(period, data.length); i++) {
+        sum += data[i];
+        if (i < period - 1) {
+            ema.push(0);
+        } else {
+            ema.push(sum / period);
+        }
+    }
+    
+    // Calculate EMA for remaining values
+    for (let i = period; i < data.length; i++) {
+        const value = (data[i] * multiplier) + (ema[i - 1] * (1 - multiplier));
+        ema.push(value);
+    }
+    
+    return ema;
+}
+
+// === ORIGINAL WORKING OSCILLATOR CHARTS FUNCTIONS ===
+
+// Global chart instances for original oscillator charts
+let originalDetailedPriceChart, originalDetailedWtChart, originalDetailedMfChart, originalDetailedTrendExhaustChart;
+let currentOscillatorTicker = null;
+
+// Open oscillator charts modal with working charts from original dashboard
+function openOscillatorCharts(ticker) {
+    console.log('Opening oscillator charts for ticker:', ticker);
+    
+    const data = tickersData?.results?.[ticker];
+    if (!data) {
+        console.error('No data found for ticker:', ticker);
+        showAlert(`No data available for ${ticker}`, 'error');
+        return;
+    }
+    
+    console.log('Opening oscillator charts for:', ticker, 'with data:', data);
+    
+    // Set current ticker
+    currentOscillatorTicker = ticker;
+    
+    // Set modal title
+    const modalTitle = document.getElementById('oscillatorModalTitle');
+    if (modalTitle) {
+        modalTitle.textContent = `${ticker} - Oscillator Charts`;
+    }
+    
+    // Show the modal
+    const modal = document.getElementById('oscillatorChartsModal');
+    if (modal) {
+        modal.style.display = 'block';
+        console.log('Oscillator charts modal displayed');
+        
+        // Render the original working charts
+        setTimeout(() => {
+            renderOriginalOscillatorCharts(data);
+        }, 100);
+    } else {
+        console.error('oscillatorChartsModal element not found');
+        showAlert('Oscillator charts modal not available', 'error');
+    }
+}
+
+// Close the oscillator charts modal
+function closeOscillatorCharts() {
+    const modal = document.getElementById('oscillatorChartsModal');
+    if (modal) {
+        modal.style.display = 'none';
+        
+        // Clean up chart instances
+        if (originalDetailedPriceChart) {
+            originalDetailedPriceChart.destroy();
+            originalDetailedPriceChart = null;
+        }
+        if (originalDetailedWtChart) {
+            originalDetailedWtChart.destroy();
+            originalDetailedWtChart = null;
+        }
+        if (originalDetailedMfChart) {
+            originalDetailedMfChart.destroy();
+            originalDetailedMfChart = null;
+        }
+        if (originalDetailedTrendExhaustChart) {
+            originalDetailedTrendExhaustChart.destroy();
+            originalDetailedTrendExhaustChart = null;
+        }
+        
+        // Reset current ticker
+        currentOscillatorTicker = null;
+    }
+}
+
+// Initialize oscillator charts modal event listeners
+function initOscillatorChartsModal() {
+    // Attach click event to close modal button
+    const closeButton = document.querySelector('.close-oscillator-modal');
+    if (closeButton) {
+        closeButton.addEventListener('click', closeOscillatorCharts);
+    }
+
+    // Attach click event on backdrop to close modal
+    const modal = document.getElementById('oscillatorChartsModal');
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                closeOscillatorCharts();
+            }
+        });
+    }
+}
+
+// Render the original working oscillator charts
+function renderOriginalOscillatorCharts(detailedData) {
+    console.log('Rendering SUPERIOR oscillator charts with full signal implementation for', currentOscillatorTicker);
+    console.log('Detailed data structure:', detailedData);
+    
+    // Clean up existing charts
+    if (originalDetailedPriceChart) {
+        originalDetailedPriceChart.destroy();
+        originalDetailedPriceChart = null;
+    }
+    if (originalDetailedWtChart) {
+        originalDetailedWtChart.destroy();
+        originalDetailedWtChart = null;
+    }
+    if (originalDetailedMfChart) {
+        originalDetailedMfChart.destroy();
+        originalDetailedMfChart = null;
+    }
+    if (originalDetailedTrendExhaustChart) {
+        originalDetailedTrendExhaustChart.destroy();
+        originalDetailedTrendExhaustChart = null;
+    }
+    
+    const dates = detailedData.dates.map(d => new Date(d));
+    
+    // Collect all important signal dates for vertical line alignment
+    const signalDates = new Set();
+    
+    // Collect buy/sell signals for vertical alignment
+    if (detailedData.signals) {
+        if (detailedData.signals.buy) {
+            detailedData.signals.buy.forEach(d => signalDates.add(new Date(d).getTime()));
+        }
+        if (detailedData.signals.goldBuy) {
+            detailedData.signals.goldBuy.forEach(d => signalDates.add(new Date(d).getTime()));
+        }
+        if (detailedData.signals.sell) {
+            detailedData.signals.sell.forEach(d => signalDates.add(new Date(d).getTime()));
+        }
+    }
+    
+    // Collect divergence signals
+    if (detailedData.divergences) {
+        ['bullish', 'bearish', 'hiddenBullish', 'hiddenBearish'].forEach(type => {
+            if (detailedData.divergences[type]) {
+                detailedData.divergences[type].forEach(d => signalDates.add(new Date(d).getTime()));
+            }
+        });
+    }
+    
+    // Collect pattern signals
+    if (detailedData.patterns) {
+        ['fastMoneyBuy', 'fastMoneySell', 'zeroLineRejectBuy', 'zeroLineRejectSell'].forEach(type => {
+            if (detailedData.patterns[type]) {
+                detailedData.patterns[type].forEach(d => signalDates.add(new Date(d).getTime()));
+            }
+        });
+    }
+    
+    // Convert back to Date objects for chart annotations
+    const alignedSignalDates = Array.from(signalDates).map(ts => new Date(ts));
+    
+    // Create vertical line annotations for each signal date
+    const verticalLineAnnotations = {};
+    alignedSignalDates.forEach((date, i) => {
+        verticalLineAnnotations[`signal_line_${i}`] = {
+            type: 'line',
+            xMin: date,
+            xMax: date,
+            borderColor: 'rgba(255, 255, 255, 0.3)',
+            borderWidth: 1,
+            borderDash: [3, 3],
+            drawTime: 'beforeDatasetsDraw'
+        };
+    });
+
+    // 1. Price Chart with enhanced styling and INCREASED HEIGHT
+    const priceCtx = document.getElementById('originalDetailedPriceChart');
+    if (priceCtx) {
+        // INCREASE CHART HEIGHT FOR BETTER VISIBILITY
+        priceCtx.style.height = '450px';
+        priceCtx.height = 450;
+        
+        const priceData = detailedData.dates.map((date, i) => ({
+            x: new Date(date),
+            y: detailedData.close ? detailedData.close[i] : detailedData.price[i]
+        }));
+
+        // Create gradient fill
+        const gradient = priceCtx.getContext('2d').createLinearGradient(0, 0, 0, 450);
+        gradient.addColorStop(0, 'rgba(41, 98, 255, 0.3)');
+        gradient.addColorStop(1, 'rgba(41, 98, 255, 0.0)');
+
+        originalDetailedPriceChart = new Chart(priceCtx, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: detailedData.ticker,
+                    data: priceData,
+                    borderColor: '#2962ff',
+                    backgroundColor: gradient,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHitRadius: 5,
+                    pointHoverRadius: 5,
+                    pointHoverBorderWidth: 2,
+                    pointHoverBackgroundColor: '#ffffff',
+                    pointHoverBorderColor: '#2962ff',
+                    fill: true,
+                    tension: 0.1,
+                    segment: {
+                        borderColor: function(ctx) {
+                            if (!ctx.p0 || !ctx.p1) return '#2962ff';
+                            return ctx.p0.parsed.y > ctx.p1.parsed.y ? '#ef5350' : '#26a69a';
+                        }
+                    }
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                layout: {
+                    padding: { left: 10, right: 50, top: 20, bottom: 10 }
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: detailedData.interval?.includes('d') ? 'day' : 'hour',
+                            displayFormats: {
+                                millisecond: 'HH:mm:ss.SSS',
+                                second: 'HH:mm:ss',
+                                minute: 'HH:mm',
+                                hour: 'dd HH:mm',
+                                day: 'MMM d',
+                                week: 'MMM d',
+                                month: 'MMM yyyy'
+                            },
+                            tooltipFormat: 'MMM d, yyyy HH:mm'
+                        },
+                        distribution: 'linear',
+                        ticks: {
+                            maxRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: 10,
+                            color: 'rgba(255, 255, 255, 0.7)'
+                        },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)', drawBorder: false },
+                        border: { color: 'rgba(255, 255, 255, 0.3)' }
+                    },
+                    y: {
+                        position: 'right',
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                            callback: function(value) {
+                                if (value >= 1000) return value.toLocaleString();
+                                if (value >= 1) return value.toFixed(2);
+                                if (value >= 0.1) return value.toFixed(4);
+                                if (value >= 0.01) return value.toFixed(5);
+                                return value.toFixed(8);
+                            }
+                        },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)', drawBorder: false },
+                        border: { color: 'rgba(255, 255, 255, 0.3)' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    title: {
+                        display: true,
+                        text: `${detailedData.ticker} Price Chart - Enhanced v16.0 with API Signals`,
+                        color: 'white',
+                        font: { size: 16, weight: 'bold' },
+                        padding: { top: 10, bottom: 30 }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        borderColor: '#555555',
+                        borderWidth: 1,
+                        padding: 12,
+                        displayColors: false,
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                const date = new Date(tooltipItems[0].raw.x);
+                                return date.toLocaleDateString(undefined, {
+                                    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+                                    hour: '2-digit', minute: '2-digit'
+                                });
+                            },
+                            label: function(context) {
+                                const price = context.raw.y;
+                                const precision = price >= 1000 ? 0 : price >= 100 ? 1 : price >= 10 ? 2 : price >= 1 ? 3 : price >= 0.1 ? 4 : price >= 0.01 ? 5 : 6;
+                                return `Price: ${price.toFixed(precision)}`;
+                            }
+                        }
+                    },
+                    annotation: {
+                        annotations: { ...verticalLineAnnotations }
+                    },
+                    zoom: {
+                        pan: { enabled: true, mode: 'x', modifierKey: 'ctrl' },
+                        zoom: {
+                            wheel: { enabled: true, modifierKey: 'ctrl' },
+                            pinch: { enabled: true },
+                            mode: 'x',
+                            onZoomComplete: function({ chart }) { chart.update('none'); }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Add superior signal annotations to price chart
+        addSuperiorSignalAnnotationsToPriceChart(originalDetailedPriceChart, detailedData);
+    }
+
+    // 2. SUPERIOR WaveTrend Chart with INCREASED HEIGHT and all signals
+    const wtCtx = document.getElementById('originalDetailedWtChart');
+    if (wtCtx) {
+        // DRAMATICALLY INCREASE CHART HEIGHT FOR BETTER OSCILLATOR VISIBILITY
+        wtCtx.style.height = '550px';
+        wtCtx.height = 550;
+        
+        originalDetailedWtChart = new Chart(wtCtx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    // Zero Zone Band - Grey background around zero line
+                    {
+                        label: 'Zero Zone',
+                        data: dates.map(date => ({
+                            x: date,
+                            y1: 10, y: 0, y0: -10
+                        })),
+                        yAxisID: 'y',
+                        backgroundColor: 'rgba(80, 80, 80, 0.1)',
+                        fill: {
+                            target: { value: 0 },
+                            below: 'rgba(80, 80, 80, 0.1)',
+                            above: 'rgba(80, 80, 80, 0.1)'
+                        },
+                        borderWidth: 0,
+                        pointRadius: 0,
+                        order: 10
+                    },
+                    // WT1 Line - White line with blue fill
+                    {
+                        label: 'WT1',
+                        data: dates.map((date, i) => ({
+                            x: date,
+                            y: detailedData.wt1 ? detailedData.wt1[i] : 0
+                        })),
+                        yAxisID: 'y',
+                        borderColor: '#ffffff',
+                        backgroundColor: 'rgba(73, 148, 236, 0.25)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: { target: 'origin', above: 'rgba(73, 148, 236, 0.25)' },
+                        order: 1
+                    },
+                    // WT2 Line - Dark blue line
+                    {
+                        label: 'WT2',
+                        data: dates.map((date, i) => ({
+                            x: date,
+                            y: detailedData.wt2 ? detailedData.wt2[i] : 0
+                        })),
+                        yAxisID: 'y',
+                        borderColor: '#2a2e39',
+                        backgroundColor: 'rgba(31, 21, 89, 0.25)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false,
+                        order: 2
+                    },
+                    // VWAP Line - Yellow line
+                    {
+                        label: 'VWAP',
+                        data: dates.map((date, i) => ({
+                            x: date,
+                            y: detailedData.wtVwap ? detailedData.wtVwap[i] : 0
+                        })),
+                        yAxisID: 'y',
+                        borderColor: '#ffe500',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false,
+                        order: 3,
+                        hidden: !detailedData.wtVwap
+                    },
+                    // RSI - Color-coded line based on value
+                    {
+                        label: 'RSI',
+                        data: dates.map((date, i) => {
+                            const rsiValue = detailedData.rsi ? detailedData.rsi[i] : 50;
+                            return { x: date, y: rsiValue, raw: rsiValue };
+                        }),
+                        yAxisID: 'y',
+                        borderColor: function(context) {
+                            if (!context.raw) return '#c33ee1';
+                            const value = context.raw.y;
+                            if (value === undefined || value === null) return '#c33ee1';
+                            if (value <= 30) return '#3ee145'; // Oversold - green
+                            if (value >= 60) return '#e13e3e'; // Overbought - red
+                            return '#c33ee1'; // In between - purple
+                        },
+                        segment: {
+                            borderColor: function(context) {
+                                const value = context.p1?.parsed?.y;
+                                if (value === undefined || value === null) return '#c33ee1';
+                                if (value <= 30) return '#3ee145';
+                                if (value >= 60) return '#e13e3e';
+                                return '#c33ee1';
+                            }
+                        },
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        fill: false,
+                        order: 4
+                    },
+                    // Stochastic - Light blue line
+                    {
+                        label: 'Stochastic',
+                        data: dates.map((date, i) => ({
+                            x: date,
+                            y: detailedData.stoch ? detailedData.stoch[i] : null
+                        })),
+                        yAxisID: 'y',
+                        borderColor: '#21baf3',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: false,
+                        order: 5,
+                        hidden: !detailedData.stoch
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                layout: { padding: { bottom: 10 } },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: detailedData.interval?.includes('d') ? 'day' : 'hour' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+                    },
+                    y: {
+                        min: -110, max: 110,
+                        grid: {
+                            color: function(context) {
+                                if (context.tick.value === 0) {
+                                    return 'rgba(255, 255, 255, 0.5)';
+                                }
+                                return 'rgba(255, 255, 255, 0.1)';
+                            }
+                        },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                            callback: function(value) {
+                                if (value === 0 || value === 53 || value === -53 || 
+                                    value === 60 || value === -60 || value === 100 || 
+                                    value === -75) {
+                                    return value;
+                                }
+                                return '';
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Enhanced WaveTrend with Multiple Oscillators (API Data)',
+                        color: 'white',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: 'white',
+                            padding: 10,
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                            filter: function(legendItem) {
+                                return ['WT1', 'WT2', 'VWAP', 'RSI', 'Stochastic']
+                                    .includes(legendItem.text);
+                            }
+                        }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label === 'Zero Zone') return '';
+                                return `${label}: ${context.parsed.y.toFixed(2)}`;
+                            }
+                        },
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        borderColor: '#555555',
+                        borderWidth: 1,
+                        padding: 10,
+                        displayColors: true
+                    },
+                    annotation: {
+                        annotations: {
+                            // Zero Line
+                            zeroLine: {
+                                type: 'line', yMin: 0, yMax: 0,
+                                borderColor: 'rgba(255, 255, 255, 0.5)', borderWidth: 1
+                            },
+                            // Overbought Lines
+                            overbought1: {
+                                type: 'line', yMin: 53, yMax: 53,
+                                borderColor: 'rgba(255, 255, 255, 0.5)', borderWidth: 1, borderDash: [3, 3]
+                            },
+                            overbought2: {
+                                type: 'line', yMin: 60, yMax: 60,
+                                borderColor: 'rgba(255, 255, 255, 0.5)', borderWidth: 1, borderDash: [5, 5]
+                            },
+                            overbought3: {
+                                type: 'line', yMin: 100, yMax: 100,
+                                borderColor: 'rgba(255, 255, 255, 0.25)', borderWidth: 1, borderDash: [2, 2]
+                            },
+                            // Oversold Lines
+                            oversold1: {
+                                type: 'line', yMin: -53, yMax: -53,
+                                borderColor: 'rgba(255, 255, 255, 0.5)', borderWidth: 1, borderDash: [3, 3]
+                            },
+                            oversold2: {
+                                type: 'line', yMin: -60, yMax: -60,
+                                borderColor: 'rgba(255, 255, 255, 0.5)', borderWidth: 1, borderDash: [5, 5]
+                            },
+                            oversold3: {
+                                type: 'line', yMin: -75, yMax: -75,
+                                borderColor: 'rgba(255, 255, 255, 0.25)', borderWidth: 1, borderDash: [2, 2]
+                            },
+                            // Include signal vertical lines
+                            ...verticalLineAnnotations
+                        }
+                    },
+                    zoom: {
+                        pan: { enabled: true, mode: 'x' },
+                        zoom: { wheel: { enabled: true }, mode: 'x' }
+                    }
+                }
+            }
+        });
+
+        // Add ALL superior Market Cipher B patterns and signals
+        addSuperiorAdvancedPatternsToChart(originalDetailedWtChart, detailedData);
+    }
+
+    // 3. Money Flow Chart with INCREASED HEIGHT
+    const mfCtx = document.getElementById('originalDetailedMfChart');
+    if (mfCtx) {
+        // INCREASE CHART HEIGHT
+        mfCtx.style.height = '380px';
+        mfCtx.height = 380;
+        
+        originalDetailedMfChart = new Chart(mfCtx, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'Money Flow',
+                    data: dates.map((date, i) => {
+                        const mfValue = detailedData.moneyFlow ? detailedData.moneyFlow[i] : 0;
+                        return {
+                            x: date,
+                            y: (typeof mfValue === 'number' && !isNaN(mfValue)) ? mfValue : 0,
+                            raw: mfValue
+                        };
+                    }),
+                    borderColor: function(context) {
+                        const value = context.raw?.y;
+                        return (value !== undefined && value >= 0) ? '#3cff00' : '#ff1100';
+                    },
+                    backgroundColor: function(context) {
+                        const value = context.raw?.y;
+                        return (value !== undefined && value >= 0) ? 'rgba(60, 255, 0, 0.3)' : 'rgba(255, 17, 0, 0.3)';
+                    },
+                    segment: {
+                        borderColor: function(context) {
+                            const value = context.p1?.parsed?.y;
+                            return (value !== undefined && value >= 0) ? '#3cff00' : '#ff1100';
+                        }
+                    },
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    fill: 'origin'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: detailedData.interval?.includes('d') ? 'day' : 'hour' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: 'rgba(255, 255, 255, 0.7)' }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Money Flow',
+                        color: 'white',
+                        font: { size: 16 }
+                    },
+                    legend: { labels: { color: 'white' } },
+                    tooltip: { mode: 'index', intersect: false },
+                    annotation: {
+                        annotations: {
+                            zeroLine: {
+                                type: 'line', yMin: 0, yMax: 0,
+                                borderColor: 'rgba(255, 255, 255, 0.5)', borderWidth: 1
+                            },
+                            ...verticalLineAnnotations
+                        }
+                    },
+                    zoom: {
+                        pan: { enabled: true, mode: 'x' },
+                        zoom: { wheel: { enabled: true }, mode: 'x' }
+                    }
+                }
+            }
+        });
+    }
+
+    // 4. TrendExhaust Chart with INCREASED HEIGHT
+    const teCtx = document.getElementById('originalDetailedTrendExhaustChart');
+    if (teCtx && (detailedData.trendExhaust || (detailedData.high && detailedData.low && detailedData.close))) {
+        // INCREASE CHART HEIGHT
+        teCtx.style.height = '380px';
+        teCtx.height = 380;
+        
+        // Use API data if available, otherwise calculate locally
+        let teData;
+    if (detailedData.trendExhaust) {
+            teData = detailedData.trendExhaust;
+        } else {
+            // Calculate TrendExhaust locally using Williams %R
+            const threshold = 20;
+            const shortPeriod = 21;
+            const longPeriod = 112;
+            
+            const shortR = calculateWilliamsPercentR(detailedData.high, detailedData.low, detailedData.close, shortPeriod);
+            const longR = calculateWilliamsPercentR(detailedData.high, detailedData.low, detailedData.close, longPeriod);
+            const avgR = shortR.map((val, i) => {
+                if (val === null || longR[i] === null) return null;
+                return (val + longR[i]) / 2;
+            });
+            
+            teData = {
+                shortPercentR: shortR,
+                longPercentR: longR,
+                avgPercentR: avgR,
+                parameters: { threshold },
+                signals: {
+                    overbought: [], oversold: [], obReversal: [], osReversal: [],
+                    bullCross: [], bearCross: []
+                }
+            };
+        }
+        
+        // Prepare data arrays for plotting
+        const shortRData = [], longRData = [], avgRData = [];
+        
+        for (let i = 0; i < dates.length; i++) {
+            if (teData.shortPercentR[i] !== null) {
+                shortRData.push({ x: dates[i], y: teData.shortPercentR[i] });
+            }
+            if (teData.longPercentR[i] !== null) {
+                longRData.push({ x: dates[i], y: teData.longPercentR[i] });
+            }
+            if (teData.avgPercentR[i] !== null) {
+                avgRData.push({ x: dates[i], y: teData.avgPercentR[i] });
+            }
+        }
+        
+        const threshold = teData.parameters?.threshold || 20;
+        
+        originalDetailedTrendExhaustChart = new Chart(teCtx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Short %R',
+                        data: shortRData,
+                        borderColor: '#ffffff',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Long %R',
+                        data: longRData,
+                        borderColor: '#ffe500',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Average %R',
+                        data: avgRData,
+                        borderColor: '#31c0ff',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0.1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 0 },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: detailedData.interval?.includes('d') ? 'day' : 'hour' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: 'rgba(255, 255, 255, 0.7)', maxRotation: 0 }
+                    },
+                    y: {
+                        min: -100, max: 0,
+                        grid: {
+                            color: function(context) {
+                                if (context.tick.value === 0 || context.tick.value === -50 || 
+                                    context.tick.value === -100 || context.tick.value === -threshold ||
+                                    context.tick.value === -100 + threshold) {
+                                    return 'rgba(255, 255, 255, 0.3)';
+                                }
+                                return 'rgba(255, 255, 255, 0.1)';
+                            }
+                        },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                            callback: function(value) {
+                                if (value === 0 || value === -50 || value === -100 || 
+                                    value === -threshold || value === -100 + threshold) {
+                                    return value;
+                                }
+                                return '';
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'TrendExhaust Oscillator',
+                        color: 'white',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: { color: 'white', usePointStyle: true, pointStyle: 'circle' }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                if (context.parsed.y !== null) {
+                                    label += context.parsed.y.toFixed(2);
+                                }
+                                return label;
+                            }
+                        }
+                    },
+                    annotation: {
+                        annotations: {
+                            topThreshold: {
+                                type: 'line', yMin: -threshold, yMax: -threshold,
+                                borderColor: 'rgba(202, 0, 23, 0.7)', borderWidth: 1, borderDash: [3, 3],
+                                label: {
+                                    display: true, content: 'OB', position: 'start',
+                                    backgroundColor: 'rgba(202, 0, 23, 0.7)', color: '#ffffff', font: { size: 10 }
+                                }
+                            },
+                            middleLine: {
+                                type: 'line', yMin: -50, yMax: -50,
+                                borderColor: 'rgba(128, 128, 128, 0.5)', borderWidth: 1
+                            },
+                            bottomThreshold: {
+                                type: 'line', yMin: -100 + threshold, yMax: -100 + threshold,
+                                borderColor: 'rgba(36, 102, 167, 0.7)', borderWidth: 1, borderDash: [3, 3],
+                                label: {
+                                    display: true, content: 'OS', position: 'start',
+                                    backgroundColor: 'rgba(36, 102, 167, 0.7)', color: '#ffffff', font: { size: 10 }
+                                }
+                            }
+                        }
+                    },
+                    zoom: {
+                        pan: { enabled: true, mode: 'x' },
+                        zoom: { wheel: { enabled: true }, mode: 'x' }
+                    }
+                }
+            }
+        });
+        
+        // Add TrendExhaust signals if available
+        if (teData.signals) {
+            addSuperiorTrendExhaustSignalsToChart(originalDetailedTrendExhaustChart, teData, threshold, avgRData);
+        }
+    }
+
+    // Add comprehensive legend for all oscillator charts
+    addSuperiorOscillatorChartsLegend();
+}
+
+// Add signal points to charts
+function addSignalPointsToChart(chart, data, wt1Data) {
+    const buySignals = data.buySignals || [];
+    const goldBuySignals = data.goldBuySignals || [];
+    const sellSignals = data.sellSignals || [];
+    const dates = data.dates || [];
+    
+    // Add buy signal points
+    if (buySignals.length > 0) {
+        const buyPoints = buySignals.map(index => ({
+            x: new Date(dates[index]),
+            y: wt1Data[index]
+        })).filter(point => point.x && point.y !== undefined);
+        
+        chart.data.datasets.push({
+            label: 'Buy Signals',
+            data: buyPoints,
+            backgroundColor: '#00ff0a',
+            borderColor: '#00ff0a',
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            showLine: false,
+            type: 'scatter'
+        });
+    }
+    
+    // Add gold buy signal points
+    if (goldBuySignals.length > 0) {
+        const goldBuyPoints = goldBuySignals.map(index => ({
+            x: new Date(dates[index]),
+            y: wt1Data[index]
+        })).filter(point => point.x && point.y !== undefined);
+        
+        chart.data.datasets.push({
+                label: 'Gold Buy Signals',
+            data: goldBuyPoints,
+            backgroundColor: '#FFD700',
+            borderColor: '#FFD700',
+            pointRadius: 8,
+            pointHoverRadius: 10,
+            showLine: false,
+            type: 'scatter'
+        });
+    }
+    
+    // Add sell signal points
+    if (sellSignals.length > 0) {
+        const sellPoints = sellSignals.map(index => ({
+            x: new Date(dates[index]),
+            y: wt1Data[index]
+        })).filter(point => point.x && point.y !== undefined);
+        
+        chart.data.datasets.push({
+            label: 'Sell Signals',
+            data: sellPoints,
+            backgroundColor: '#ff1100',
+            borderColor: '#ff1100',
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            showLine: false,
+            type: 'scatter'
+        });
+    }
+    
+    chart.update();
+}
+
+// Add superior signal annotations to price chart with comprehensive signals
+function addSuperiorSignalAnnotationsToPriceChart(chart, data) {
+    if (!chart || !chart.options || !chart.options.plugins || !chart.options.plugins.annotation) {
+        return;
+    }
+
+    // Create point annotations for signals
+    if (data.signals) {
+        // Buy signals
+        if (data.signals.buy && data.signals.buy.length > 0) {
+            data.signals.buy.forEach((date, i) => {
+                const index = data.dates.indexOf(date);
+                if (index !== -1) {
+                    const price = data.close ? data.close[index] : data.price[index];
+                    chart.options.plugins.annotation.annotations[`buy${i}`] = {
+                        type: 'point',
+                        xValue: new Date(date),
+                        yValue: price,
+                        backgroundColor: 'rgba(60, 255, 0, 0.8)',
+                        borderColor: 'rgba(60, 255, 0, 1)',
+                        borderWidth: 2,
+                        radius: 6,
+                        label: {
+                            content: 'Buy',
+                            enabled: true,
+                            position: 'top',
+                            backgroundColor: 'rgba(60, 255, 0, 0.9)',
+                            color: 'black',
+                            font: { size: 11, weight: 'bold' },
+                            padding: 4
+                        }
+                    };
+                }
+            });
+        }
+
+        // Gold buy signals
+        if (data.signals.goldBuy && data.signals.goldBuy.length > 0) {
+            data.signals.goldBuy.forEach((date, i) => {
+                const index = data.dates.indexOf(date);
+                if (index !== -1) {
+                    const price = data.close ? data.close[index] : data.price[index];
+                    chart.options.plugins.annotation.annotations[`goldBuy${i}`] = {
+                        type: 'point',
+                        xValue: new Date(date),
+                        yValue: price,
+                        backgroundColor: 'rgba(226, 164, 0, 0.8)',
+                        borderColor: 'rgba(226, 164, 0, 1)',
+                        borderWidth: 2,
+                        radius: 8,
+                        label: {
+                            content: 'Gold Buy',
+                            enabled: true,
+                            position: 'top',
+                            backgroundColor: 'rgba(226, 164, 0, 0.9)',
+                            color: 'black',
+                            font: { size: 11, weight: 'bold' },
+                            padding: 4
+                        }
+                    };
+                }
+            });
+        }
+
+        // Sell signals
+        if (data.signals.sell && data.signals.sell.length > 0) {
+            data.signals.sell.forEach((date, i) => {
+                const index = data.dates.indexOf(date);
+                if (index !== -1) {
+                    const price = data.close ? data.close[index] : data.price[index];
+                    chart.options.plugins.annotation.annotations[`sell${i}`] = {
+                        type: 'point',
+                        xValue: new Date(date),
+                        yValue: price,
+                        backgroundColor: 'rgba(255, 82, 82, 0.8)',
+                        borderColor: 'rgba(255, 82, 82, 1)',
+                        borderWidth: 2,
+                        radius: 6,
+                        label: {
+                            content: 'Sell',
+                            enabled: true,
+                            position: 'top',
+                            backgroundColor: 'rgba(255, 82, 82, 0.9)',
+                            color: 'black',
+                            font: { size: 11, weight: 'bold' },
+                            padding: 4
+                        }
+                    };
+                }
+            });
+        }
+    }
+
+    chart.update();
+}
+
+// Add legend for oscillator charts
+function addOscillatorChartsLegend() {
+    const legendContainer = document.getElementById('originalOscillatorLegendContainer');
+    if (!legendContainer) return;
+    
+    legendContainer.innerHTML = `
+        <div class="card bg-dark">
+            <div class="card-header">
+                <h5 class="mb-0 text-white">📊 Superior Oscillator Charts Legend</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- Buy Signals -->
+                    <div class="col-md-6 mb-3">
+                        <h6 class="border-bottom border-light pb-1 text-white">Buy Signals</h6>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; border-radius:50%; background:#3fff00;"></span>
+                            <small class="text-white">Regular Buy Signal - WT crosses in oversold zone</small>
+                        </div>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; border-radius:50%; background:#e2a400;"></span>
+                            <small class="text-white">Gold Buy Signal - WT crosses with RSI < 30</small>
+                        </div>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; transform:rotate(45deg); background:#e600e6;"></span>
+                            <small class="text-white">Bullish Divergence - Price lower, WT higher</small>
+                        </div>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; transform:rotate(45deg); background:#66ff99;"></span>
+                            <small class="text-white">Hidden Bullish Div - Price higher, WT lower</small>
+                        </div>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; clip-path:polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); background:#31c0ff;"></span>
+                            <small class="text-white">Fast Money Buy - Quick momentum shift</small>
+                        </div>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; border-radius:50%; background:#31c0ff;"></span>
+                            <small class="text-white">Zero Line Reject Buy - Bounce from zero</small>
+                        </div>
+                    </div>
+                    
+                    <!-- Sell Signals -->
+                    <div class="col-md-6 mb-3">
+                        <h6 class="border-bottom border-light pb-1 text-white">Sell Signals</h6>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; border-radius:50%; background:#ff5252;"></span>
+                            <small class="text-white">Regular Sell Signal - WT crosses in overbought zone</small>
+                        </div>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; transform:rotate(45deg); background:#e600e6;"></span>
+                            <small class="text-white">Bearish Divergence - Price higher, WT lower</small>
+                        </div>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; transform:rotate(45deg); background:#ff6666;"></span>
+                            <small class="text-white">Hidden Bearish Div - Price lower, WT higher</small>
+                        </div>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; clip-path:polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); background:#ff00f0;"></span>
+                            <small class="text-white">Fast Money Sell - Quick momentum shift</small>
+                        </div>
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2" style="display:inline-block; width:15px; height:15px; border-radius:50%; background:#ff9900;"></span>
+                            <small class="text-white">Zero Line Reject Sell - Drop from zero</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Guide Lines -->
+                <div class="row mt-2">
+                    <div class="col-12">
+                        <h6 class="border-bottom border-light pb-1 text-white">Indicator Guidelines</h6>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="me-2" style="display:inline-block; width:20px; border-top:1px solid #ffffff;"></span>
+                                    <small class="text-white">WT1 Line (White) - Fast Wave</small>
+                                </div>
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="me-2" style="display:inline-block; width:20px; border-top:1px solid #2a2e39;"></span>
+                                    <small class="text-white">WT2 Line (Dark Blue) - Slow Wave</small>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2" style="display:inline-block; width:20px; border-top:1px solid #ffe500;"></span>
+                                    <small class="text-white">VWAP Line (Yellow) - Volume Weighted</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="me-2" style="display:inline-block; width:20px; border-top:1px dashed rgba(255,255,255,0.5);"></span>
+                                    <small class="text-white">±53: Mild Oversold/Overbought</small>
+                                </div>
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="me-2" style="display:inline-block; width:20px; border-top:1px dashed rgba(255,255,255,0.5);"></span>
+                                    <small class="text-white">±60: Moderate Oversold/Overbought</small>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2" style="display:inline-block; width:20px; border-top:1px solid rgba(255,255,255,0.5);"></span>
+                                    <small class="text-white">0: Zero Line - Key Support/Resistance</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="me-2" style="display:inline-block; width:20px; border-top:1px solid #c33ee1;"></span>
+                                    <small class="text-white">RSI Line - Color Coded by Value</small>
+                                </div>
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="me-2" style="display:inline-block; width:20px; border-top:1px solid #3cff00;"></span>
+                                    <small class="text-white">Money Flow - Green=Bullish, Red=Bearish</small>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2" style="display:inline-block; width:20px; border-top:1px solid #31c0ff;"></span>
+                                    <small class="text-white">TrendExhaust - Williams %R</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Trading Tips -->
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h6 class="border-bottom border-light pb-1 text-white">Professional Trading Tips</h6>
+                        <ul class="list-unstyled small text-white mb-0">
+                            <li class="mb-1">🎯 <strong>Confluence Trading:</strong> Multiple signals offer stronger trade probability</li>
+                            <li class="mb-1">🔄 <strong>Divergences:</strong> Powerful reversal signals, especially with key levels</li>
+                            <li class="mb-1">💰 <strong>Money Flow:</strong> Confirms trend strength and momentum</li>
+                            <li class="mb-1">⚡ <strong>Fast Money:</strong> Best in ranging markets for quick scalps</li>
+                            <li class="mb-1">📈 <strong>Zero Line:</strong> Key support/resistance for trend continuation</li>
+                            <li>⏰ <strong>Timeframes:</strong> Always confirm on higher timeframes for important trades</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// Initialize the oscillator charts modal when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    initOscillatorChartsModal();
+});
+
+// 🚀 ENHANCED v16.0: Extract and log API signals for debugging
+const apiSignals = {
+    buy: detailedData.signals?.buy || [],
+    goldBuy: detailedData.signals?.goldBuy || [],
+    sell: detailedData.signals?.sell || [],
+    bullishDiv: detailedData.divergences?.bullish || [],
+    bearishDiv: detailedData.divergences?.bearish || [],
+    teOverbought: detailedData.trendExhaust?.signals?.overbought || [],
+    teOversold: detailedData.trendExhaust?.signals?.oversold || []
+};
+const totalAPISignals = Object.values(apiSignals).reduce((sum, arr) => sum + arr.length, 0);
+console.log(`🎯 Enhanced Dashboard v16.0 - Found ${totalAPISignals} API signals:`, Object.entries(apiSignals).filter(([k, v]) => v.length > 0).map(([k, v]) => `${k}: ${v.length}`));
+
+// Add comprehensive legend for all oscillator charts

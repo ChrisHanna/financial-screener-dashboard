@@ -77,10 +77,8 @@
                                     <option value="5m">5 Minutes</option>
                                     <option value="15m">15 Minutes</option>
                                     <option value="30m">30 Minutes</option>
-                                    <option value="60m">60 Minutes</option>
                                     <option value="1h">1 Hour</option>
                                     <option value="1d" selected>1 Day</option>
-                                    <option value="5d">5 Days</option>
                                     <option value="1wk">1 Week</option>
                                     <option value="1mo">1 Month</option>
                                 </select>
@@ -289,12 +287,53 @@
                 <!-- Trading Recommendations Container -->
                 <div id="tradingRecommendationsContainer" class="mb-3"></div>
                 
-                <!-- Rest of the modal content will be added in the next part -->
+                <!-- Action Buttons -->
+                <div class="ticker-actions">
+                    <button class="action-btn view-details" onclick="openDetailedView('${ticker}')">
+                        <i class="bi bi-graph-up"></i> Detailed Analysis
+                    </button>
+                    <button class="action-btn analyze" onclick="analyzeTicker('${ticker}')">
+                        <i class="bi bi-cpu"></i> AI Analysis
+                    </button>
+                    <button class="action-btn sac-analysis" onclick="showSACAnalysis('${ticker}')">
+                        <i class="bi bi-robot"></i> SAC Insights
+                    </button>
+                    <button class="action-btn charts" onclick="openOscillatorCharts('${ticker}')">
+                        <i class="bi bi-graph-down"></i> Oscillator Charts
+                    </button>
+                </div>
             </div>
         </div>
     </div>
     
+    <!-- Oscillator Charts Modal (Original Working Version) -->
+    <div id="oscillatorChartsModal" class="modal">
+        <div class="modal-content" style="max-width: 95%; width: 1400px;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3 id="oscillatorModalTitle">Oscillator Charts</h3>
+                <span class="close-oscillator-modal">&times;</span>
+            </div>
+            
+            <!-- Original Working Oscillator Charts -->
+            <div class="detailed-chart-container">
+                <canvas id="originalDetailedPriceChart"></canvas>
+            </div>
+            <div class="detailed-chart-container">
+                <canvas id="originalDetailedWtChart"></canvas>
+            </div>
+            <div class="detailed-chart-container">
+                <canvas id="originalDetailedMfChart"></canvas>
+            </div>
+            <div class="detailed-chart-container">
+                <canvas id="originalDetailedTrendExhaustChart"></canvas>
+            </div>
+            
+            <!-- Chart Legend -->
+            <div id="originalOscillatorLegendContainer" class="mb-3"></div>
+        </div>
+    </div>
+    
     <!-- Load Enhanced Dashboard JavaScript -->
-    <script src="enhanced-dashboard.js?v=10.0"></script>
+    <script src="enhanced-dashboard.js?v=19.0"></script>
 </body>
 </html>
