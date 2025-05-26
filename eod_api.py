@@ -64,15 +64,19 @@ class EODDataProvider:
                 return None
                 
             # Add company information
-            try:
-                # Try to get fundamental data for company name
-                fundamentals = self.api.get_fundamentals_data(ticker=eod_symbol)
-                if fundamentals and 'General' in fundamentals:
-                    df.attrs['company_name'] = fundamentals['General'].get('Name', ticker)
-                else:
-                    df.attrs['company_name'] = ticker
-            except:
-                df.attrs['company_name'] = ticker
+            # DISABLED: Fundamentals API call causing 403 errors - using ticker as company name instead
+            # try:
+            #     # Try to get fundamental data for company name
+            #     fundamentals = self.api.get_fundamentals_data(ticker=eod_symbol)
+            #     if fundamentals and 'General' in fundamentals:
+            #         df.attrs['company_name'] = fundamentals['General'].get('Name', ticker)
+            #     else:
+            #         df.attrs['company_name'] = ticker
+            # except:
+            #     df.attrs['company_name'] = ticker
+            
+            # Use ticker as company name (no fundamentals API call)
+            df.attrs['company_name'] = ticker
                 
             self.logger.info(f"Successfully fetched {len(df)} rows for {ticker}")
             return df

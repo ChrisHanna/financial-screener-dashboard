@@ -1952,7 +1952,7 @@ def get_multi_ticker_data():
             # With EOD API (paid service), we don't need aggressive delays
             # Add minimal delay only for very rapid requests
             if i > 0:
-                delay = 0.5  # Just 0.5 second delay between requests
+                delay = 0.02  # Just 0.5 second delay between requests
                 logger.info(f"Adding {delay}s delay before {ticker}")
                 time.sleep(delay)
             
