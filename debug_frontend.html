@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frontend Debug Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: white; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .success { background: #28a745; }
+        .error { background: #dc3545; }
+        .warning { background: #ffc107; color: black; }
+        .info { background: #17a2b8; }
+        #output { border: 1px solid #ccc; padding: 10px; margin: 10px 0; max-height: 400px; overflow-y: auto; background: #2a2a2a; }
+    </style>
+</head>
+<body>
+    <h1>Enhanced Dashboard Debug Test</h1>
+    
+    <div class="test-result info">
+        <strong>Testing Frontend Functionality...</strong>
+    </div>
+    
+    <button onclick="testAPI()" style="padding: 10px 20px; margin: 10px;">Test API Call</button>
+    <button onclick="testRenderGrid()" style="padding: 10px 20px; margin: 10px;">Test Grid Rendering</button>
+    <button onclick="checkElements()" style="padding: 10px 20px; margin: 10px;">Check HTML Elements</button>
+    
+    <div id="output"></div>
+    
+    <!-- Test ticker grid container -->
+    <div id="tickersGrid" style="border: 2px solid #28a745; margin: 20px 0; min-height: 100px; padding: 10px;">
+        <p>Ticker cards will appear here...</p>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        function checkElements() {
+            log('=== Checking HTML Elements ===');
+            
+            const elements = [
+                'tickersGrid',
+                'addTickers',
+                'tickerInput',
+                'loading',
+                'periodSelector',
+                'intervalSelector'
+            ];
+            
+            elements.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    log(`✅ Element found: ${id}`, 'success');
+                } else {
+                    log(`❌ Element missing: ${id}`, 'error');
+                }
+            });
+        }
+
+        async function testAPI() {
+            log('=== Testing API Call ===');
+            
+            try {
+                log('Making API request to /api/multi-ticker...');
+                
+                const response = await fetch('/api/multi-ticker?tickers=AAPL,MSFT&period=1y&interval=1d');
+                
+                if (!response.ok) {
+                    log(`❌ API Error: ${response.status} ${response.statusText}`, 'error');
+                    return;
+                }
+                
+                const data = await response.json();
+                log(`✅ API Response received`, 'success');
+                log(`Response structure: success=${data.success}, results count=${Object.keys(data.results || {}).length}`, 'info');
+                
+                if (data.results) {
+                    Object.keys(data.results).forEach(ticker => {
+                        const tickerData = data.results[ticker];
+                        log(`📊 ${ticker}: ${tickerData.dates?.length || 0} data points`, 'info');
+                        
+                        // Check RSI3M3 data
+                        if (tickerData.rsi3m3) {
+                            log(`🎯 ${ticker} RSI3M3: ${tickerData.rsi3m3.rsi3m3?.length || 0} values`, 'success');
+                        } else {
+                            log(`⚠️ ${ticker} missing RSI3M3 data`, 'warning');
+                        }
+                    });
+                } else {
+                    log(`❌ No results in API response`, 'error');
+                }
+                
+                return data;
+                
+            } catch (error) {
+                log(`❌ API Error: ${error.message}`, 'error');
+                return null;
+            }
+        }
+
+        async function testRenderGrid() {
+            log('=== Testing Grid Rendering ===');
+            
+            // First test API
+            const data = await testAPI();
+            if (!data) {
+                log('❌ Cannot test rendering without API data', 'error');
+                return;
+            }
+            
+            log('Attempting to render ticker grid...', 'info');
+            
+            try {
+                // Simplified rendering test
+                const tickersGrid = document.getElementById('tickersGrid');
+                if (!tickersGrid) {
+                    log('❌ tickersGrid element not found', 'error');
+                    return;
+                }
+                
+                tickersGrid.innerHTML = '';
+                
+                if (!data.results) {
+                    log('❌ No results in data', 'error');
+                    tickersGrid.innerHTML = '<div style="color: red;">No data available</div>';
+                    return;
+                }
+                
+                let cardCount = 0;
+                Object.entries(data.results).forEach(([ticker, tickerData]) => {
+                    const cardDiv = document.createElement('div');
+                    cardDiv.style.cssText = 'border: 1px solid #28a745; margin: 10px; padding: 15px; background: #333; border-radius: 8px;';
+                    
+                    const currentPrice = tickerData.summary?.currentPrice || 0;
+                    const priceChange = tickerData.summary?.priceChangePct || 0;
+                    const rsi3m3 = tickerData.rsi3m3?.rsi3m3?.[tickerData.rsi3m3.rsi3m3.length - 1] || 0;
+                    const rsi3m3State = tickerData.rsi3m3?.state?.[tickerData.rsi3m3.state.length - 1] || 0;
+                    
+                    let stateColor = '#808080';
+                    let stateLabel = 'Neutral';
+                    switch (rsi3m3State) {
+                        case 1: stateColor = '#00ff0a'; stateLabel = 'Bullish'; break;
+                        case 2: stateColor = '#ff1100'; stateLabel = 'Bearish'; break;
+                        case 3: stateColor = '#ffff00'; stateLabel = 'Transition'; break;
+                    }
+                    
+                    cardDiv.innerHTML = `
+                        <h3>${ticker}</h3>
+                        <p>Price: $${currentPrice.toFixed(2)} (${priceChange > 0 ? '+' : ''}${priceChange.toFixed(2)}%)</p>
+                        <p>RSI3M3: <span style="color: ${stateColor}; font-weight: bold;">${rsi3m3.toFixed(2)} (${stateLabel})</span></p>
+                        <p>Data Points: ${tickerData.dates?.length || 0}</p>
+                    `;
+                    
+                    tickersGrid.appendChild(cardDiv);
+                    cardCount++;
+                });
+                
+                log(`✅ Successfully rendered ${cardCount} ticker cards`, 'success');
+                
+            } catch (error) {
+                log(`❌ Rendering Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-run checks when page loads
+        window.addEventListener('load', function() {
+            log('🚀 Debug page loaded');
+            checkElements();
+        });
+    </script>
+</body>
+</html> 

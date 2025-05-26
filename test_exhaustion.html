@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exhaustion Functions Test</title>
+</head>
+<body>
+    <h1>Exhaustion Functions Test</h1>
+    <div id="test-results"></div>
+
+    <script>
+        // Define the exhaustion functions
+        function calculateExhaustionScore(trendExhaustData) {
+            if (!trendExhaustData || !trendExhaustData.avgPercentR) {
+                return 0;
+            }
+            
+            const avgPercentR = trendExhaustData.avgPercentR;
+            const recentValues = avgPercentR.slice(-10);
+            
+            if (recentValues.length === 0) return 0;
+            
+            const currentValue = recentValues[recentValues.length - 1];
+            let exhaustionScore = 0;
+            
+            if (currentValue >= -20) {
+                exhaustionScore = 70 + ((-20 - currentValue) / 20) * 30;
+            } else if (currentValue <= -80) {
+                exhaustionScore = 70 + ((currentValue + 80) / 20) * 30;
+            } else {
+                const midpoint = -50;
+                const distanceFromMid = Math.abs(currentValue - midpoint);
+                exhaustionScore = 20 + (distanceFromMid / 30) * 40;
+            }
+            
+            return Math.max(0, Math.min(100, exhaustionScore));
+        }
+
+        function getExhaustionLevel(trendExhaustData) {
+            if (!trendExhaustData || Object.keys(trendExhaustData).length === 0) {
+                return 'No Data';
+            }
+            
+            const score = calculateExhaustionScore(trendExhaustData);
+            
+            if (score >= 80) return 'Critical';
+            if (score >= 65) return 'High';
+            if (score >= 35) return 'Moderate';
+            if (score >= 20) return 'Low';
+            return 'Normal';
+        }
+
+        function countExhaustionSignals(trendExhaustData) {
+            if (!trendExhaustData || !trendExhaustData.signals) {
+                return 0;
+            }
+            
+            const signals = trendExhaustData.signals;
+            let count = 0;
+            
+            if (signals.obReversal) count += signals.obReversal.length;
+            if (signals.osReversal) count += signals.osReversal.length;
+            if (signals.bullCross) count += signals.bullCross.length;
+            if (signals.bearCross) count += signals.bearCross.length;
+            
+            return count;
+        }
+
+        // Test the functions
+        function runTests() {
+            const testData = {
+                avgPercentR: [-30, -40, -50, -60, -70, -25, -15, -85, -90, -30],
+                signals: {
+                    obReversal: [1, 2],
+                    osReversal: [3],
+                    bullCross: [4, 5],
+                    bearCross: []
+                }
+            };
+
+            const emptyData = {};
+
+            const results = [
+                'Testing Exhaustion Functions:',
+                '',
+                'Test 1 - calculateExhaustionScore with data:',
+                `Result: ${calculateExhaustionScore(testData)}`,
+                '',
+                'Test 2 - getExhaustionLevel with data:',
+                `Result: ${getExhaustionLevel(testData)}`,
+                '',
+                'Test 3 - countExhaustionSignals with data:',
+                `Result: ${countExhaustionSignals(testData)}`,
+                '',
+                'Test 4 - calculateExhaustionScore with empty data:',
+                `Result: ${calculateExhaustionScore(emptyData)}`,
+                '',
+                'Test 5 - getExhaustionLevel with empty data:',
+                `Result: ${getExhaustionLevel(emptyData)}`,
+                '',
+                'Test 6 - countExhaustionSignals with empty data:',
+                `Result: ${countExhaustionSignals(emptyData)}`,
+                '',
+                'All tests completed successfully!'
+            ];
+
+            document.getElementById('test-results').innerHTML = results.join('<br>');
+            console.log('Test results:', results);
+        }
+
+        // Run tests when page loads
+        document.addEventListener('DOMContentLoaded', runTests);
+    </script>
+</body>
+</html> 

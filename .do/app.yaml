@@ -1,0 +1,21 @@
+name: screener-dashboard
+services:
+- name: web
+  dockerfile_path: Dockerfile
+  github:
+    branch: main
+    repo: chrishanna/screener
+    deploy_on_push: true
+  health_check:
+    http_path: /
+    timeout_seconds: 5
+  http_port: 8080
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  routes:
+  - path: /
+  envs:
+  - key: PORT
+    value: "8080"
+  - key: PYTHONUNBUFFERED
+    value: "1" 

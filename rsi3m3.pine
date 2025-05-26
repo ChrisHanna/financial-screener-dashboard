@@ -1,0 +1,300 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ADutchTourist
+//@kromut76
+//improved to use it based on THE CYCLE TRADING PATTERN MANUAL By Walter Bressert
+
+//@version=6
+indicator(title = 'RSI3M3+ v.1.9', overlay = false)
+
+len     = input(3,"RSI Length", group = "RSI3M3 setting")
+maLen   = input(3,"Smooting MA", group = "RSI3M3 setting")
+requiredBars = input.int(title = 'Required bars', defval = 20, minval = 2, step = 1)
+overBought = input.int(title = 'Overbought region', defval = 70, minval = 51, maxval = 100, step = 1)
+overSold = input.int(title = 'Oversold region', defval = 30, minval = 1, maxval = 49, step = 1)
+
+// Bressert cycle analysis parameters
+cycleDetectionLength = input.int(title = 'Cycle Detection Length', defval = 30, minval = 10, maxval = 100, step = 1)
+showTimingBands = input.bool(title = 'Show Timing Bands', defval = true)
+minCycleLength = input.int(title = 'Minimum Cycle Length (days)', defval = 15, minval = 5, maxval = 50, step = 1)
+maxCycleLength = input.int(title = 'Maximum Cycle Length (days)', defval = 30, minval = 10, maxval = 100, step = 1)
+
+// Bressert's specific levels
+showtrend   = input.bool(false, "show trend",group="Bressert's specifid level")
+buyLine     = input.int(title = 'Buy Line', defval = 39, minval = 1, maxval = 49, step = 1, group="Bressert's specifid level")
+sellLine    = input.int(title = 'Sell Line', defval = 61, minval = 51, maxval = 100, step = 1,group="Bressert's specifid level")
+
+//-----------------------------------------------------------------------------
+// RSI3M3 Calculation
+//-----------------------------------------------------------------------------
+// Original RSI3M3 calculation - 3-period RSI smoothed with 3-period MA
+
+sRSI = ta.rsi(close, len)
+sMA = ta.sma(sRSI, maLen)
+
+// Check if we have enough bars for valid signals
+enoughBars = bar_index >= requiredBars
+//-----------------------------------------------------------------------------
+// Cycle Detection Logic
+//-----------------------------------------------------------------------------
+// Detect local minima and maxima for cycle analysis
+isBottom = ta.lowest(sMA, 5) == sMA and sMA[3] > sMA[2] and sMA[2] > sMA[1] and sMA[1] > sMA and sMA < buyLine
+isTop = ta.highest(sMA, 5) == sMA and sMA[3] < sMA[2] and sMA[2] < sMA[1] and sMA[1] < sMA and sMA > sellLine
+
+// Store cycle bottoms and tops
+var int lastBottomBar = 0
+var int lastTopBar = 0
+var float lastBottomPrice = 0.0
+var float lastTopPrice = 0.0
+
+if isBottom and enoughBars
+    lastBottomBar := bar_index
+    lastBottomPrice := low
+    
+if isTop and enoughBars
+    lastTopBar := bar_index
+    lastTopPrice := high
+
+// Calculate cycle length
+cycleLength = lastBottomBar - lastBottomBar[1]
+validCycleLength = cycleLength >= minCycleLength and cycleLength <= maxCycleLength
+
+//-----------------------------------------------------------------------------
+// Timing Bands Calculation
+//-----------------------------------------------------------------------------
+var int projectedNextBottomMin = 0
+var int projectedNextBottomMax = 0
+var int projectedNextTopMin = 0
+var int projectedNextTopMax = 0
+
+if isBottom and validCycleLength and enoughBars
+    // Project next cycle bottom timing band
+    projectedNextBottomMin := bar_index + minCycleLength
+    projectedNextBottomMax := bar_index + maxCycleLength
+
+if isTop and enoughBars
+    // Project next cycle top timing band based on typical cycle relationships
+    projectedNextTopMin := bar_index + math.round(minCycleLength * 0.6)
+    projectedNextTopMax := bar_index + math.round(maxCycleLength * 0.6)
+
+//-----------------------------------------------------------------------------
+// Enhanced Signal Conditions Based on Bressert's Rules
+//-----------------------------------------------------------------------------
+// Rule 1: The low must be 15-30 market days from previous Trading Cycle bottom
+inCycleBottomWindow = bar_index >= projectedNextBottomMin and bar_index <= projectedNextBottomMax
+
+// Rule 2: Trading Cycle high must have occurred with oscillator above sell line at 60
+validPriorTop = false
+if not na(lastTopBar) and (bar_index - lastTopBar) >= 0 and (bar_index - lastTopBar) <= 5000
+    validPriorTop := sMA[bar_index - lastTopBar] > sellLine
+
+// Rule 3: Oscillator must drop below buy line at 40 and turn up
+oscillatorDroppedBelow40 = sMA[1] < buyLine and sMA > sMA[1]
+
+// Rule 4: Trigger Entry is a rise above the price high of the upturn day
+triggerEntry = close > high[1] and oscillatorDroppedBelow40
+
+conditionUpArrow = if sMA > sMA[1] and sMA[1] < sMA[2] and sMA[1] < overSold
+    1
+else
+    na
+
+conditionDownArrow = if sMA < sMA[1] and sMA[1] > sMA[2] and sMA[1] > overBought
+    1
+else
+    na
+
+//-----------------------------------------------------------------------------
+// Visualization
+//-----------------------------------------------------------------------------
+// Overbought/Oversold bands
+band1 = hline(title = 'OB', price = overBought, color = color.silver)
+band0 = hline(title = 'OS', price = overSold, color = color.silver)
+fill(band1, band0, color = color.rgb(33, 150, 243, 90), title = 'Background')
+
+// Bressert's buy/sell lines
+hline(title = 'Buy Line', price = buyLine, color = color.rgb(0, 255, 0, 50), linestyle = hline.style_dotted)
+hline(title = 'Sell Line', price = sellLine, color = color.rgb(255, 0, 0, 50), linestyle = hline.style_dotted)
+
+// Plot RSI and MA
+plot(series = sRSI, title = 'RSI', color = color.new(color.lime, 0))
+plot(series = sMA, title = 'MA', color = color.new(color.red, 0))
+
+// Plot buy/sell signals
+plotshape(conditionUpArrow, style = shape.arrowup, color = color.new(color.green, 0), 
+         size = size.auto, location = location.bottom, title = "Buy Signal")
+plotshape(conditionDownArrow, style = shape.arrowdown, color = color.new(color.red, 0), 
+         size = size.auto, location = location.top, title = "Sell Signal")
+
+// Plot timing bands if enabled
+if showTimingBands
+    bottomBandStart = projectedNextBottomMin
+    bottomBandEnd = projectedNextBottomMax
+    
+    // Plot vertical lines for projected bottom timing band
+    if not na(bottomBandStart) and not na(bottomBandEnd) and bottomBandStart > 0 and bottomBandEnd > 0
+        bottomBandColor = color.new(color.yellow, 70)
+        bottomBandStartLine = line.new(bottomBandStart, 0, bottomBandStart, 100, 
+                                      color = bottomBandColor, width = 1, style = line.style_dashed)
+        bottomBandEndLine = line.new(bottomBandEnd, 0, bottomBandEnd, 100, 
+                                     color = bottomBandColor, width = 1, style = line.style_dashed)
+        fill = line.new(bottomBandStart, 50, bottomBandEnd, 50, 
+                       color = bottomBandColor, width = 15)
+        
+        line.delete(bottomBandStartLine[1])
+        line.delete(bottomBandEndLine[1])
+        line.delete(fill[1])
+
+//-----------------------------------------------------------------------------
+// Protective Stop Logic (Rule 5)
+//-----------------------------------------------------------------------------
+var float stopLevel = na
+if conditionUpArrow != 0  // Convert integer to boolean by comparing with 0
+    stopLevel := lastBottomPrice * 0.99  // Stop slightly below the Trading Cycle low
+//-----------------------------------------------------------------------------
+// RSI to Price
+//-----------------------------------------------------------------------------
+
+
+len_rsi         = len
+targetsrc       = close
+pricedecimals   = 3
+ShowRSIToPrice  = input.bool(true,"RSI to Price",group="RSI",tooltip="Hover over number for additional information")
+RSItoPriceOff   = input.int(5,"RSI Label Offset", group="RSI")
+RSILabelSize    = input.string(size.tiny,"RSI Label Size", [size.tiny, size.small, size.normal],group="RSI")
+
+price_by_rsi(level) =>
+    x1 = (len_rsi - 1) * (ta.rma(math.max(nz(targetsrc[1], targetsrc) - targetsrc, 0), len_rsi) * level / (100 - level) - ta.rma(math.max(targetsrc - nz(targetsrc[1], targetsrc), 0), len_rsi))
+    x1 >= 0 ? targetsrc + x1 : targetsrc + x1 * (100 - level) / level
+
+
+truncateprice(number, pricedecimals) =>
+    factor = math.pow(10, pricedecimals)
+    int(number * factor) / factor
+
+percenttruncate(number, percentdecimals) =>
+    factor = math.pow(10, percentdecimals)
+    int(number * factor) / factor
+
+percent(n1, n2) =>
+    (n1 - n2) / n2 * 100
+
+//-----------------------------------------------------------------------------
+// RSI Trend State
+//-----------------------------------------------------------------------------
+
+n       = bar_index
+ts1     = 67
+ts2     = 33
+ts1a    = 61
+ts2a    = 39
+
+var state = 0
+if ta.crossover(sRSI, ts1)
+    state := 1
+    state
+if ta.crossunder(sRSI, ts2)
+    state := 2
+    state
+if state == 1 and ta.crossunder(sRSI, ts2a)
+    state := 3
+    state
+if state == 2 and ta.crossover(sRSI, ts1a)
+    state := 3
+    state
+state := state
+
+brightgreen = #00ff0a
+brightrend  = #ff1100
+darkred     = #801922
+darkgreen   = #1b5e20
+uc          = brightgreen
+dc          = brightrend
+// ------------------- Fibonacci Lines --------------------------- //
+hundred     = hline(100, title = '100 Line', color = color.new(uc, 70), editable = true, display = display.none)
+eighty      = hline(85.41, color = color.new(uc, 70), editable = false)
+seventysix  = hline(76.30, color = color.new(uc, 70), editable = false)
+sixtysix    = hline(ts1, color = color.new(uc, 70), editable = false)
+sixty       = hline(ts1a, color = color.new(color.gray, 50), editable = false)
+fifty       = hline(50, color = color.new(color.gray, 50), editable = false)
+fourty      = hline(ts2a, color = color.new(color.gray, 50), editable = false)
+thirtythree = hline(ts2, color = color.new(brightrend, 70), editable = false)
+twentythree = hline(23.61, color = color.new(brightrend, 70), editable = false)
+twenty      = hline(14.59, color = color.new(brightrend, 70), editable = false)
+zero        = hline(0, title = '0 Line', color = color.new(brightrend, 70), editable = true, display = display.none)
+
+fill(sixty, sixtysix, color = showtrend and state == 3 ? color.new(color.red, 80) : na)
+fill(thirtythree, fourty, color = showtrend and state == 3 ? color.new(color.green, 80) : na)
+fill(fifty, hundred, color = showtrend and state == 1 ? color.new(color.green, 80) : na)
+fill(fifty, zero, color = showtrend and state == 2 ? color.new(color.red, 80) : na)
+fill(fifty, sixty, color = showtrend and state == 2 ? color.new(darkred, 80) : na)
+fill(fifty, fourty, color = showtrend and state == 1 ? color.new(darkgreen, 80) : na)
+
+// [BFJ] Fib variables
+fr1     = 0
+fr3     = 14.59
+fr5     = 23.61
+fr7     = 33.33
+fr9     = buyLine
+fr11    = 50
+fr13    = sellLine
+fr16    = 66.67
+fr18    = 76.30
+fr20    = 84.41
+fr21    = 100
+
+// Number of Decimals for Labels
+truncatepercent(number, percentdecimals) =>
+    factor = math.pow(10, percentdecimals)
+    int(number * factor) / factor
+
+// RSI to Price Labels
+var label la0 = na
+if ShowRSIToPrice
+    la0 := label.new(n + RSItoPriceOff , fr3, str.tostring(truncateprice(price_by_rsi(fr3), pricedecimals)), color = color.new(color.white, 100), style = label.style_none, size = RSILabelSize, textcolor = state == 2 ? #ff1100 : na, tooltip = '📍 RSI ' + str.tostring(fr3) + '\n∆y ' + str.tostring(truncateprice(price_by_rsi(fr3) - close, pricedecimals)) + '\n~1 : 6')
+    label.delete(la0[1])
+
+var label la1c = na
+if ShowRSIToPrice
+    la1c := label.new(n + RSItoPriceOff , fr5, str.tostring(truncateprice(price_by_rsi(fr5), pricedecimals)), color = color.new(color.white, 100), style = label.style_none, size = RSILabelSize, textcolor = state == 2 ? #ff1100 : na, tooltip = '📍 RSI ' + str.tostring(fr5) + '\n∆y ' + str.tostring(truncateprice(price_by_rsi(fr5) - close, pricedecimals)) + '\n~1 : 3')
+    label.delete(la1c[1])
+
+var label la1b = na
+if ShowRSIToPrice
+    la1b := label.new(n + RSItoPriceOff , fr7, str.tostring(truncateprice(price_by_rsi(fr7), pricedecimals)), color = color.new(color.white, 100), style = label.style_none, size = RSILabelSize, textcolor = state == 2 ? #ff1100 : state == 3 ? #00ff0a : na, tooltip = '📍 RSI ' + str.tostring(fr7) + '\n∆y ' + str.tostring(truncateprice(price_by_rsi(fr7) - close, pricedecimals)) + '\n1 : 2')
+    label.delete(la1b[1])
+
+var label la2 = na
+if ShowRSIToPrice
+    la2 := label.new(n + RSItoPriceOff , fr9, str.tostring(truncateprice(price_by_rsi(fr9), pricedecimals)), color = color.new(color.white, 100), style = label.style_none, size = RSILabelSize, textcolor = state == 1 or state == 3 ? #00ff0a : state == 2 ? #ff1100 : na, tooltip = '📍 RSI ' + str.tostring(fr9) + '\n∆y ' + str.tostring(truncateprice(price_by_rsi(fr9) - close, pricedecimals)) + '\n~1 : 1.618')
+    label.delete(la2[1])
+
+var label la3 = na
+if ShowRSIToPrice
+    la3 := label.new(n + RSItoPriceOff , fr11, str.tostring(truncateprice(price_by_rsi(fr11), pricedecimals)), color = color.new(color.white, 100), style = label.style_none, size = RSILabelSize, textcolor = sRSI > 50 ? #00ff0a : #ff1100, tooltip = '📍 RSI ' + str.tostring(fr11) + '\n∆y ' + str.tostring(truncateprice(price_by_rsi(fr11) - close, pricedecimals)) + '\n1 : 1')
+    label.delete(la3[1])
+
+var label la4 = na
+if ShowRSIToPrice
+    la4 := label.new(n + RSItoPriceOff , fr13, str.tostring(truncateprice(price_by_rsi(fr13), pricedecimals)), color = color.new(color.white, 100), style = label.style_none, size = RSILabelSize, textcolor = state == 2 or state == 3 ? #ff1100 : state == 1 ? #00ff0a : na, tooltip = '📍 RSI ' + str.tostring(fr13) + '\n∆y ' + str.tostring(truncateprice(price_by_rsi(fr13) - close, pricedecimals)) + '\n~1.618 : 1')
+    label.delete(la4[1])
+
+var label la4b = na
+if ShowRSIToPrice
+    la4b := label.new(n + RSItoPriceOff , fr16, str.tostring(truncateprice(price_by_rsi(fr16), pricedecimals)), color = color.new(color.white, 100), style = label.style_none, size = RSILabelSize, textcolor = state == 1 ? #00ff0a : state == 3 ? #ff1100 : na, tooltip = '📍 RSI ' + str.tostring(fr16) + '\n∆y ' + str.tostring(truncateprice(price_by_rsi(fr16) - close, pricedecimals)) + '\n2 : 1')
+    label.delete(la4b[1])
+
+var label la5b = na
+if ShowRSIToPrice
+    la5b := label.new(n + RSItoPriceOff , fr18, str.tostring(truncateprice(price_by_rsi(fr18), pricedecimals)), color = color.new(color.white, 100), style = label.style_none, size = RSILabelSize, textcolor = state == 1 ? #00ff0a : na, tooltip = '📍 RSI ' + str.tostring(fr18) + '\n∆y ' + str.tostring(truncateprice(price_by_rsi(fr18) - close, pricedecimals)) + '\n~3 : 1')
+    label.delete(la5b[1])
+
+var label la6 = na
+if ShowRSIToPrice
+    la6 := label.new(n + RSItoPriceOff , fr20, str.tostring(truncateprice(price_by_rsi(fr20), pricedecimals)), color = color.new(color.white, 100), style = label.style_none, size = RSILabelSize, textcolor = state == 1 ? #00ff0a : na, tooltip = '📍 RSI ' + str.tostring(fr20) + '\n∆y ' + str.tostring(truncateprice(price_by_rsi(fr20) - close, pricedecimals)) + '\n~6 : 1')
+    label.delete(la6[1])
+
+//-----------------------------------------------------------------------------
+// Alert Conditions
+//-----------------------------------------------------------------------------
+alertcondition(conditionUpArrow != 0, title="Buy Signal", message="RSI3M3+ Buy Signal")
+alertcondition(conditionDownArrow != 0, title="Sell Signal", message="RSI3M3+ Sell Signal")

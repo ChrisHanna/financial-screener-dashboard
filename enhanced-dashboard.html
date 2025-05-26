@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Trading Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="enhanced-dashboard.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.1.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@1.2.1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.0.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <!-- Top Navigation -->
+        <div class="top-nav">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h1 class="mb-0">Enhanced Trading Dashboard</h1>
+                <div>
+                    <a href="index.html" class="btn btn-outline-light me-2">Single Ticker View</a>
+                    <a href="dashboard.html" class="btn btn-outline-light">Standard Dashboard</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls Section -->
+        <div class="controls">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="tickerInput" class="form-label">Ticker Symbols (comma separated)</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control input-dark" id="tickerInput" placeholder="e.g., AAPL, MSFT, BTC-USD">
+                            <button class="btn btn-primary" id="addTickers">Add Tickers</button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <button class="btn btn-outline-secondary" id="showBatchUploadBtn">Batch Upload</button>
+                        <form id="batchUploadForm" class="mt-2">
+                            <div class="mb-3">
+                                <label for="batchFile" class="form-label">Upload Tickers List (TXT file)</label>
+                                <input class="form-control input-dark" type="file" id="batchFile" accept=".txt">
+                            </div>
+                            <button type="submit" class="btn btn-primary">Upload</button>
+                        </form>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="periodSelector" class="form-label">Period</label>
+                                <select class="form-select input-dark" id="periodSelector">
+                                    <option value="1d">1 Day</option>
+                                    <option value="5d">5 Days</option>
+                                    <option value="1mo">1 Month</option>
+                                    <option value="3mo">3 Months</option>
+                                    <option value="6mo">6 Months</option>
+                                    <option value="1y" selected>1 Year</option>
+                                    <option value="2y">2 Years</option>
+                                    <option value="5y">5 Years</option>
+                                    <option value="max">Max</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="intervalSelector" class="form-label">Interval</label>
+                                <select class="form-select input-dark" id="intervalSelector">
+                                    <option value="1m">1 Minute</option>
+                                    <option value="5m">5 Minutes</option>
+                                    <option value="15m">15 Minutes</option>
+                                    <option value="30m">30 Minutes</option>
+                                    <option value="60m">60 Minutes</option>
+                                    <option value="1h">1 Hour</option>
+                                    <option value="1d" selected>1 Day</option>
+                                    <option value="5d">5 Days</option>
+                                    <option value="1wk">1 Week</option>
+                                    <option value="1mo">1 Month</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="sortSelector" class="form-label">Sort By</label>
+                                <select class="form-select input-dark" id="sortSelector">
+                                    <option value="alphabetical" selected>Alphabetical</option>
+                                    <option value="price">Price</option>
+                                    <option value="change">Price Change</option>
+                                    <option value="signal">Signal Strength</option>
+                                    <option value="volume">Volume</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <button class="btn btn-outline-secondary me-2" id="clearCacheBtn">Clear Cache</button>
+                            <button class="btn btn-outline-secondary" id="saveDashboardBtn">Save Dashboard</button>
+                        </div>
+                        <div class="timestamp">Last updated: <span id="lastUpdated">-</span></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Category Filter - HIDDEN -->
+            <div class="mt-3" style="display: none;">
+                <div class="mb-2">Category Filter:</div>
+                <div class="d-flex flex-wrap">
+                    <div class="filter-badge active" data-category="all">All</div>
+                    <div class="filter-badge" data-category="stock">Stocks</div>
+                    <div class="filter-badge" data-category="crypto">Crypto</div>
+                    <div class="filter-badge" data-category="forex">Forex</div>
+                    <div class="filter-badge" data-category="commodity">Commodities</div>
+                </div>
+            </div>
+            
+            <!-- Enhanced Oscillator-Specific Filters - HIDDEN -->
+            <div class="mt-3" style="display: none;">
+                <div class="mb-2">RSI3M3+ State Filter:</div>
+                <div class="d-flex flex-wrap">
+                    <div class="filter-badge active" data-rsi-state="all">All States</div>
+                    <div class="filter-badge" data-rsi-state="bullish">Bullish (State 1)</div>
+                    <div class="filter-badge" data-rsi-state="bearish">Bearish (State 2)</div>
+                    <div class="filter-badge" data-rsi-state="transition">Transition (State 3)</div>
+                    <div class="filter-badge" data-rsi-state="fresh-signal">Fresh Signals (≤3 days)</div>
+                </div>
+            </div>
+            
+            <!-- Exhaustion Level Filter - HIDDEN -->
+            <div class="mt-3" style="display: none;">
+                <div class="mb-2">Exhaustion Level Filter:</div>
+                <div class="d-flex flex-wrap">
+                    <div class="filter-badge active" data-exhaustion="all">All Levels</div>
+                    <div class="filter-badge" data-exhaustion="critical">Critical</div>
+                    <div class="filter-badge" data-exhaustion="high">High</div>
+                    <div class="filter-badge" data-exhaustion="moderate">Moderate</div>
+                    <div class="filter-badge" data-exhaustion="low">Low</div>
+                    <div class="filter-badge" data-exhaustion="normal">Normal</div>
+                </div>
+            </div>
+            
+            <!-- Confluence Filter - HIDDEN -->
+            <div class="mt-3" style="display: none;">
+                <div class="mb-2">System Confluence Filter:</div>
+                <div class="d-flex flex-wrap">
+                    <div class="filter-badge active" data-confluence="all">All Confluence</div>
+                    <div class="filter-badge" data-confluence="strong-aligned">Strong Aligned (3-4 systems)</div>
+                    <div class="filter-badge" data-confluence="moderate-aligned">Moderate Aligned (2 systems)</div>
+                    <div class="filter-badge" data-confluence="conflicted">Conflicted</div>
+                    <div class="filter-badge" data-confluence="high-score">High Score (≥75)</div>
+                    <div class="filter-badge" data-confluence="low-score">Low Score (≤25)</div>
+                </div>
+            </div>
+            
+            <!-- Momentum & Trend Filter - HIDDEN -->
+            <div class="mt-3" style="display: none;">
+                <div class="mb-2">Momentum & Trend Filter:</div>
+                <div class="d-flex flex-wrap">
+                    <div class="filter-badge active" data-momentum="all">All Momentum</div>
+                    <div class="filter-badge" data-momentum="strong-bullish">Strong Bullish</div>
+                    <div class="filter-badge" data-momentum="moderate-bullish">Moderate Bullish</div>
+                    <div class="filter-badge" data-momentum="neutral">Neutral</div>
+                    <div class="filter-badge" data-momentum="moderate-bearish">Moderate Bearish</div>
+                    <div class="filter-badge" data-momentum="strong-bearish">Strong Bearish</div>
+                </div>
+            </div>
+            
+            <!-- Legacy Signal Filter (for backward compatibility) - HIDDEN -->
+            <div class="mt-3" style="display: none;">
+                <div class="mb-2">Analyzer B Signals:</div>
+                <div class="d-flex flex-wrap">
+                    <div class="filter-badge active" data-signal="all">All Signals</div>
+                    <div class="filter-badge" data-signal="buy">Buy</div>
+                    <div class="filter-badge" data-signal="goldbuy">Gold Buy</div>
+                    <div class="filter-badge" data-signal="sell">Sell</div>
+                    <div class="filter-badge" data-signal="bullishdiv">Bullish Div</div>
+                    <div class="filter-badge" data-signal="bearishdiv">Bearish Div</div>
+                    <div class="filter-badge" data-signal="neutral">Neutral</div>
+                </div>
+            </div>
+            
+            <!-- Enhanced Chart Type Selector - HIDDEN -->
+            <div class="mt-3" style="display: none;">
+                <div class="mb-2">Chart Type:</div>
+                <div class="chart-type-selector">
+                    <button class="chart-type-btn active" data-chart-type="candlestick">Candlestick</button>
+                    <button class="chart-type-btn" data-chart-type="heikinashi">Heikin Ashi</button>
+                    <button class="chart-type-btn" data-chart-type="line">Line</button>
+                    <button class="chart-type-btn" data-chart-type="renko">Renko</button>
+                    <button class="chart-type-btn" data-chart-type="pointfigure">Point &amp; Figure</button>
+                    <button class="chart-type-btn" data-chart-type="marketprofile">Market Profile</button>
+                </div>
+            </div>
+            
+            <!-- Multi-Timeframe Selector - HIDDEN -->
+            <div class="mt-3" style="display: none;">
+                <div class="mb-2">Multi-Timeframe Analysis:</div>
+                <div class="timeframe-selector">
+                    <button class="timeframe-btn" data-timeframe="1m">1m</button>
+                    <button class="timeframe-btn" data-timeframe="5m">5m</button>
+                    <button class="timeframe-btn" data-timeframe="15m">15m</button>
+                    <button class="timeframe-btn" data-timeframe="30m">30m</button>
+                    <button class="timeframe-btn" data-timeframe="1h">1h</button>
+                    <button class="timeframe-btn" data-timeframe="4h">4h</button>
+                    <button class="timeframe-btn active" data-timeframe="1d">1d</button>
+                    <button class="timeframe-btn" data-timeframe="1w">1w</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Loading Indicator -->
+        <div class="loading" id="loading" style="display: none;">
+            <div class="loading-content">
+                <div class="spinner-border loading-spinner text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div>Loading ticker data...</div>
+            </div>
+        </div>
+        
+        <!-- Tickers Grid -->
+        <div class="row" id="tickersGrid">
+            <!-- Ticker cards will be dynamically inserted here -->
+        </div>
+        
+        <!-- Detailed View Modal -->
+        <div id="detailedViewModal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal">&times;</span>
+                <h2 id="modalTickerTitle"></h2>
+                
+                <!-- Chart Controls Container -->
+                <div class="chart-controls-container">
+                    <button class="chart-control-btn active" data-control="zoom">
+                        <i class="bi bi-zoom-in"></i> Zoom
+                    </button>
+                    <button class="chart-control-btn" data-control="pan">
+                        <i class="bi bi-arrows-move"></i> Pan
+                    </button>
+                    <button class="chart-control-btn" data-control="reset">
+                        <i class="bi bi-arrow-counterclockwise"></i> Reset
+                    </button>
+                    <div class="dropdown">
+                        <button class="chart-control-btn dropdown-toggle" type="button" id="drawingToolsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-pencil"></i> Draw
+                        </button>
+                        <ul class="dropdown-menu bg-dark" aria-labelledby="drawingToolsDropdown">
+                            <li><a class="dropdown-item text-white" href="#" data-drawing-tool="trendline">Trend Line</a></li>
+                            <li><a class="dropdown-item text-white" href="#" data-drawing-tool="horizontalline">Horizontal Line</a></li>
+                            <li><a class="dropdown-item text-white" href="#" data-drawing-tool="verticalline">Vertical Line</a></li>
+                            <li><a class="dropdown-item text-white" href="#" data-drawing-tool="rectangle">Rectangle</a></li>
+                            <li><a class="dropdown-item text-white" href="#" data-drawing-tool="fibonacci">Fibonacci</a></li>
+                            <li><a class="dropdown-item text-white" href="#" data-drawing-tool="text">Text</a></li>
+                        </ul>
+                    </div>
+                    <button class="chart-control-btn" data-control="indicators">
+                        <i class="bi bi-graph-up"></i> Indicators
+                    </button>
+                    <button class="chart-control-btn" data-control="save">
+                        <i class="bi bi-save"></i> Save Layout
+                    </button>
+                </div>
+                
+                <!-- Chart Layout Selector -->
+                <div class="chart-layouts-container">
+                    <button class="chart-layout-btn active" data-layout="default">Default</button>
+                    <button class="chart-layout-btn" data-layout="technical">Technical Analysis</button>
+                    <button class="chart-layout-btn" data-layout="momentum">Momentum</button>
+                    <button class="chart-layout-btn" data-layout="volatility">Volatility</button>
+                    <button class="chart-layout-btn" data-layout="volume">Volume Analysis</button>
+                    <button class="chart-layout-btn" data-layout="custom">Custom</button>
+                </div>
+                
+                <!-- Time Range Slider -->
+                <div id="timeRangeSlider" class="mt-3 mb-4"></div>
+                
+                <!-- Main Price Chart -->
+                <div class="detailed-chart-container">
+                    <canvas id="detailedPriceChart"></canvas>
+                </div>
+                
+                <!-- Trading Recommendations Container -->
+                <div id="tradingRecommendationsContainer" class="mb-3"></div>
+                
+                <!-- Rest of the modal content will be added in the next part -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- Load Enhanced Dashboard JavaScript -->
+    <script src="enhanced-dashboard.js?v=10.0"></script>
+</body>
+</html>

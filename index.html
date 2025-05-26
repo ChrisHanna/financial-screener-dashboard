@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analyzer B Oscillator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.1.0"></script>
+    <style>
+        body {
+            background-color: #1e222d;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .chart-container {
+            position: relative;
+            margin: auto;
+            height: 80vh;
+            width: 100%;
+            background-color: #131722;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        .controls {
+            background-color: #2a2e39;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        .info-panel {
+            background-color: #2a2e39;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            margin-bottom: 20px;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            color: #fff;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .loading-spinner {
+            width: 3rem;
+            height: 3rem;
+            margin-bottom: 1rem;
+            border-width: 0.25rem;
+        }
+        .card {
+            background-color: #252836;
+            border: none;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            margin-bottom: 15px;
+        }
+        .card-header {
+            background-color: #1c1f2b;
+            color: #e0e0e0;
+            border-bottom: 1px solid #343a40;
+        }
+        .card-body {
+            color: #e0e0e0;
+        }
+        .status-indicator {
+            padding: 10px 15px;
+            border-radius: 4px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .buy-zone {
+            background-color: #15603e;
+            color: #3fff00;
+        }
+        .sell-zone {
+            background-color: #6b2d2d;
+            color: #ff5252;
+        }
+        .neutral-zone {
+            background-color: #3b3b3b;
+            color: #e0e0e0;
+        }
+        .signal-count {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .btn-primary {
+            background-color: #2962ff;
+            border-color: #2962ff;
+        }
+        .btn-primary:hover {
+            background-color: #0d47a1;
+            border-color: #0d47a1;
+        }
+        .footer {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #888;
+        }
+        .parameters-panel {
+            margin-top: 15px;
+            padding: 15px;
+            border-top: 1px solid #353a42;
+        }
+        .badge-param {
+            background-color: #2962ff;
+            margin-right: 5px;
+            margin-bottom: 5px;
+            padding: 5px 8px;
+            border-radius: 4px;
+        }
+        .tab-nav {
+            background-color: #1c1f2b;
+            border-radius: 8px 8px 0 0;
+            overflow: hidden;
+        }
+        .tab-link {
+            padding: 10px 15px;
+            display: inline-block;
+            color: #e0e0e0;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .tab-link.active {
+            background-color: #252836;
+            border-top: 3px solid #2962ff;
+            color: #fff;
+        }
+        .tab-link:hover:not(.active) {
+            background-color: #30343f;
+        }
+        .info-tile {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .info-tile-title {
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: #a0a0a0;
+        }
+        .info-tile-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+        .info-row {
+            display: flex;
+            flex-wrap: wrap;
+            margin: 0 -5px;
+        }
+        .info-col {
+            flex: 1;
+            padding: 0 5px;
+            min-width: 150px;
+        }
+        .form-select {
+            background-color: #252836;
+            color: #e0e0e0;
+            border-color: #353a42;
+        }
+        .form-select:focus {
+            background-color: #252836;
+            color: #e0e0e0;
+            border-color: #2962ff;
+            box-shadow: 0 0 0 0.25rem rgba(41, 98, 255, 0.25);
+        }
+        .form-select option {
+            background-color: #252836;
+            color: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <h1 class="text-center mb-4">Analyzer B Oscillator</h1>
+        
+        <div class="row">
+            <div class="col-md-12">
+                <div class="controls">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="ticker" class="form-label">Stock Ticker</label>
+                                <input type="text" class="form-control" id="ticker" placeholder="e.g., AAPL" value="AAPL">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="period" class="form-label">Period</label>
+                                <select class="form-select" id="period">
+                                    <option value="1mo">1 Month</option>
+                                    <option value="3mo">3 Months</option>
+                                    <option value="6mo">6 Months</option>
+                                    <option value="1y" selected>1 Year</option>
+                                    <option value="2y">2 Years</option>
+                                    <option value="5y">5 Years</option>
+                                    <option value="max">Max</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="interval" class="form-label">Interval</label>
+                                <select class="form-select" id="interval">
+                                    <!-- Will be populated dynamically -->
+                                    <option value="1d" selected>Daily</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-3 d-flex align-items-end">
+                            <div class="mb-3 w-100">
+                                <button class="btn btn-primary w-100" id="loadData">Load Data</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-3">
+                        <div class="col-md-12">
+                            <div class="tab-nav">
+                                <a class="tab-link active" data-tab="info">Info</a>
+                                <a class="tab-link" data-tab="settings">Settings</a>
+                            </div>
+                            
+                            <div class="tab-content bg-dark p-3">
+                                <!-- Info Tab -->
+                                <div class="tab-pane active" id="info-tab">
+                                    <div class="info-row">
+                                        <div class="info-col">
+                                            <div class="info-tile bg-dark">
+                                                <div class="info-tile-title">Last Update</div>
+                                                <div class="info-tile-value" id="last-update">-</div>
+                                            </div>
+                                        </div>
+                                        <div class="info-col">
+                                            <div class="info-tile bg-dark">
+                                                <div class="info-tile-title">Data Points</div>
+                                                <div class="info-tile-value" id="data-points">-</div>
+                                            </div>
+                                        </div>
+                                        <div class="info-col">
+                                            <div class="info-tile bg-dark">
+                                                <div class="info-tile-title">Selected Interval</div>
+                                                <div class="info-tile-value" id="selected-interval">-</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Settings Tab -->
+                                <div class="tab-pane" id="settings-tab" style="display: none;">
+                                    <div id="current-parameters">
+                                        <h5>Current Parameters</h5>
+                                        <div id="parameters-badges"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-12">
+                <div class="chart-container">
+                    <canvas id="priceChart"></canvas>
+                    <div id="loading" class="loading" style="display: none;">
+                        <div class="spinner-border loading-spinner text-light" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span>Loading data...</span>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="wtChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="mfChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <div class="info-panel">
+                    <h3>Current Indicator Status</h3>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">Current Values</div>
+                                <div class="card-body">
+                                    <table class="table table-dark table-sm">
+                                        <tbody>
+                                            <tr>
+                                                <td>WT1</td>
+                                                <td id="currentWT1">-</td>
+                                            </tr>
+                                            <tr>
+                                                <td>WT2</td>
+                                                <td id="currentWT2">-</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Money Flow</td>
+                                                <td id="currentMF">-</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">Overall Status</div>
+                                <div class="card-body">
+                                    <div id="statusIndicator" class="status-indicator neutral-zone">
+                                        Waiting for data...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="info-panel">
+                    <h3>Recent Signals</h3>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-header">Buy</div>
+                                <div class="card-body">
+                                    <div id="buySignalCount" class="signal-count text-success">-</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-header">Gold Buy</div>
+                                <div class="card-body">
+                                    <div id="goldBuySignalCount" class="signal-count text-warning">-</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-header">Sell</div>
+                                <div class="card-body">
+                                    <div id="sellSignalCount" class="signal-count text-danger">-</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>Based on Analyzer B Pine Script oscillator</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

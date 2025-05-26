@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Button Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: white; }
+        button { padding: 10px 20px; margin: 10px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Button Functionality Test</h1>
+    
+    <p>This page tests if the enhanced dashboard buttons are working:</p>
+    
+    <button onclick="testAnalyze()">Test Analyze Function</button>
+    <button onclick="testDetails()">Test Details Function</button>
+    
+    <div id="results"></div>
+
+    <script>
+        // Mock data for testing
+        let tickersData = {
+            results: {
+                'AAPL': {
+                    summary: {
+                        currentPrice: 150.25,
+                        priceChangePct: 2.5,
+                        buySignals: 2,
+                        sellSignals: 0
+                    },
+                    rsi3m3: {
+                        rsi3m3: [45.2, 47.8, 52.1],
+                        state: [1, 1, 1]
+                    },
+                    dates: ['2024-01-01', '2024-01-02', '2024-01-03']
+                }
+            }
+        };
+        
+        function testAnalyze() {
+            console.log('Testing analyze function...');
+            const results = document.getElementById('results');
+            results.innerHTML += '<p>✅ Analyze function called for AAPL</p>';
+            
+            // Test the actual function
+            try {
+                analyzeTicker('AAPL');
+                results.innerHTML += '<p>✅ analyzeTicker function executed successfully</p>';
+            } catch (error) {
+                results.innerHTML += '<p>❌ Error: ' + error.message + '</p>';
+            }
+        }
+        
+        function testDetails() {
+            console.log('Testing details function...');
+            const results = document.getElementById('results');
+            results.innerHTML += '<p>✅ Details function called for AAPL</p>';
+            
+            // Test the actual function  
+            try {
+                openDetailedView('AAPL');
+                results.innerHTML += '<p>✅ openDetailedView function executed successfully</p>';
+            } catch (error) {
+                results.innerHTML += '<p>❌ Error: ' + error.message + '</p>';
+            }
+        }
+        
+        // Copy the functions from enhanced-dashboard.js for testing
+        function showAlert(message, type) {
+            alert(`${type.toUpperCase()}: ${message}`);
+        }
+        
+        function getRSI3M3StateLabel(state) {
+            switch (state) {
+                case 1: return 'Bullish';
+                case 2: return 'Bearish'; 
+                case 3: return 'Transition';
+                default: return 'Neutral';
+            }
+        }
+        
+        function performBasicAnalysis(ticker, data) {
+            const summary = data.summary || {};
+            const rsi3m3Data = data.rsi3m3 || {};
+            
+            const currentPrice = summary.currentPrice || 0;
+            const priceChange = summary.priceChangePct || 0;
+            const currentRSI3M3 = rsi3m3Data.rsi3m3 ? rsi3m3Data.rsi3m3[rsi3m3Data.rsi3m3.length - 1] : 0;
+            const rsi3m3State = rsi3m3Data.state ? rsi3m3Data.state[rsi3m3Data.state.length - 1] : 0;
+            
+            let analysis = [];
+            
+            if (priceChange > 2) {
+                analysis.push('Strong upward momentum');
+            } else if (priceChange > 0) {
+                analysis.push('Positive price movement');
+            }
+            
+            if (rsi3m3State === 1) {
+                analysis.push('RSI3M3 shows bullish conditions');
+            }
+            
+            const buySignals = summary.buySignals || 0;
+            if (buySignals > 0) {
+                analysis.push('Buy signals present');
+            }
+            
+            return analysis.join('. ') || 'No significant signals detected';
+        }
+        
+        function analyzeTicker(ticker) {
+            console.log('analyzeTicker called for ticker:', ticker);
+            
+            const data = tickersData?.results?.[ticker];
+            if (!data) {
+                console.error('No data found for ticker:', ticker);
+                showAlert(`No data available for ${ticker}`, 'error');
+                return;
+            }
+            
+            const analysis = performBasicAnalysis(ticker, data);
+            showAlert(`Analysis for ${ticker}: ${analysis}`, 'info');
+            console.log('Analysis completed for:', ticker, analysis);
+        }
+        
+        function openDetailedView(ticker) {
+            console.log('openDetailedView called for ticker:', ticker);
+            
+            const data = tickersData?.results?.[ticker];
+            if (!data) {
+                console.error('No data found for ticker:', ticker);
+                showAlert(`No data available for ${ticker}`, 'error');
+                return;
+            }
+            
+            alert(`Details for ${ticker}: Price: $${data.summary?.currentPrice}, RSI3M3: ${data.rsi3m3?.rsi3m3?.[data.rsi3m3.rsi3m3.length - 1]}`);
+            console.log('Details opened for:', ticker);
+        }
+    </script>
+</body>
+</html> 

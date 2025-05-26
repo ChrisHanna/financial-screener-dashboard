@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Functions Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .pass { background: #00ff0a20; border: 1px solid #00ff0a; }
+        .fail { background: #ff110020; border: 1px solid #ff1100; }
+        .info { background: #4a90e220; border: 1px solid #4a90e2; }
+    </style>
+</head>
+<body>
+    <h1>Enhanced Dashboard Functions Test</h1>
+    <div id="test-results"></div>
+
+    <script>
+        // Test exhaustion functions
+        function testExhaustionFunctions() {
+            const results = document.getElementById('test-results');
+            
+            try {
+                // Test with sample data
+                const sampleExhaustionData = {
+                    avgPercentR: [-85, -75, -65, -55, -45, -35, -25, -15],
+                    signals: {
+                        obReversal: [6, 7],
+                        osReversal: [0, 1],
+                        bullCross: [2],
+                        bearCross: [5]
+                    },
+                    dates: ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05', '2024-01-06', '2024-01-07', '2024-01-08']
+                };
+
+                // Test calculateExhaustionScore
+                if (typeof calculateExhaustionScore === 'function') {
+                    const score = calculateExhaustionScore(sampleExhaustionData);
+                    results.innerHTML += `<div class="test-result pass">✅ calculateExhaustionScore: ${score.toFixed(2)}</div>`;
+                } else {
+                    results.innerHTML += '<div class="test-result fail">❌ calculateExhaustionScore function not found</div>';
+                }
+
+                // Test getExhaustionLevel
+                if (typeof getExhaustionLevel === 'function') {
+                    const level = getExhaustionLevel(sampleExhaustionData);
+                    results.innerHTML += `<div class="test-result pass">✅ getExhaustionLevel: ${level}</div>`;
+                } else {
+                    results.innerHTML += '<div class="test-result fail">❌ getExhaustionLevel function not found</div>';
+                }
+
+                // Test countExhaustionSignals
+                if (typeof countExhaustionSignals === 'function') {
+                    const count = countExhaustionSignals(sampleExhaustionData);
+                    results.innerHTML += `<div class="test-result pass">✅ countExhaustionSignals: ${count}</div>`;
+                } else {
+                    results.innerHTML += '<div class="test-result fail">❌ countExhaustionSignals function not found</div>';
+                }
+
+                // Test analyzeRSI3M3Curve
+                if (typeof analyzeRSI3M3Curve === 'function') {
+                    const sampleRSI3M3Data = {
+                        rsi3m3: [45, 50, 55, 60, 65, 70, 75, 65, 60, 55],
+                        state: [0, 0, 1, 1, 1, 1, 1, 1, 3, 3],
+                        dates: ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05', '2024-01-06', '2024-01-07', '2024-01-08', '2024-01-09', '2024-01-10']
+                    };
+                    const curve = analyzeRSI3M3Curve(sampleRSI3M3Data);
+                    results.innerHTML += `<div class="test-result pass">✅ analyzeRSI3M3Curve: Trend=${curve.trend}, Curvature=${curve.curvature}, Momentum=${curve.momentum}</div>`;
+                } else {
+                    results.innerHTML += '<div class="test-result fail">❌ analyzeRSI3M3Curve function not found</div>';
+                }
+
+                // Test other functions
+                const functionTests = [
+                    'findLastRSI3M3StateChange',
+                    'findLastAnalyzerBSignals', 
+                    'findLastExhaustionSignals',
+                    'createSignalTimeline',
+                    'analyzeSignalPerformance',
+                    'analyzeMarketContext',
+                    'createSignalAlert',
+                    'calculateUnifiedAnalysis'
+                ];
+
+                functionTests.forEach(funcName => {
+                    if (typeof window[funcName] === 'function') {
+                        results.innerHTML += `<div class="test-result pass">✅ ${funcName} function exists</div>`;
+                    } else {
+                        results.innerHTML += `<div class="test-result fail">❌ ${funcName} function not found</div>`;
+                    }
+                });
+
+                results.innerHTML += '<div class="test-result info">🔍 All basic function tests completed. Try loading some ticker data to test full functionality.</div>';
+
+            } catch (error) {
+                results.innerHTML += `<div class="test-result fail">❌ Error during testing: ${error.message}</div>`;
+            }
+        }
+
+        // Test basic exhaust functions that should be available
+        function testBasicExhaustFunctions() {
+            const results = document.getElementById('test-results');
+            
+            // Test data
+            const testData = {
+                avgPercentR: [-80, -70, -60, -50, -40, -30, -20, -10],
+                signals: { obReversal: [6], osReversal: [1] }
+            };
+
+            try {
+                if (typeof calculateExhaustionScore !== 'undefined') {
+                    const score = calculateExhaustionScore(testData);
+                    results.innerHTML += `<div class="test-result pass">✅ Exhaustion Score Test: ${score}</div>`;
+                } else {
+                    results.innerHTML += '<div class="test-result fail">❌ calculateExhaustionScore not defined</div>';
+                }
+
+                if (typeof getExhaustionLevel !== 'undefined') {
+                    const level = getExhaustionLevel(testData);
+                    results.innerHTML += `<div class="test-result pass">✅ Exhaustion Level Test: ${level}</div>`;
+                } else {
+                    results.innerHTML += '<div class="test-result fail">❌ getExhaustionLevel not defined</div>';
+                }
+
+            } catch (error) {
+                results.innerHTML += `<div class="test-result fail">❌ Test Error: ${error.message}</div>`;
+            }
+        }
+
+        // Run tests when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            testBasicExhaustFunctions();
+            
+            // Try to load the dashboard script and test
+            const script = document.createElement('script');
+            script.src = 'enhanced-dashboard.js?v=6.0';
+            script.onload = function() {
+                setTimeout(testExhaustionFunctions, 100);
+            };
+            script.onerror = function() {
+                document.getElementById('test-results').innerHTML += '<div class="test-result fail">❌ Failed to load enhanced-dashboard.js</div>';
+            };
+            document.head.appendChild(script);
+        });
+    </script>
+</body>
+</html> 
