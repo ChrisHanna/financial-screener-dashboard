@@ -21,11 +21,7 @@
         <!-- Top Navigation -->
         <div class="top-nav">
             <div class="d-flex justify-content-between align-items-center mb-3">
-                <h1 class="mb-0">Enhanced Trading Dashboard</h1>
-                <div>
-                    <a href="index.html" class="btn btn-outline-light me-2">Single Ticker View</a>
-                    <a href="dashboard.html" class="btn btn-outline-light">Standard Dashboard</a>
-                </div>
+                <h1 class="mb-0">Wavetrend.ai</h1>
             </div>
         </div>
 
@@ -322,6 +318,9 @@
                 <canvas id="originalDetailedWtChart"></canvas>
             </div>
             <div class="detailed-chart-container">
+                <canvas id="originalDetailedRSI3M3Chart"></canvas>
+            </div>
+            <div class="detailed-chart-container">
                 <canvas id="originalDetailedMfChart"></canvas>
             </div>
             <div class="detailed-chart-container">
@@ -332,6 +331,30 @@
             <div id="originalOscillatorLegendContainer" class="mb-3"></div>
         </div>
     </div>
+    
+    <!-- Educational Disclaimer Footer -->
+    <footer style="background: rgba(0, 0, 0, 0.9); border-top: 1px solid rgba(255, 255, 255, 0.1); padding: 20px 0; margin-top: 40px; text-align: center; color: rgba(255, 255, 255, 0.7);">
+        <div class="container">
+            <div style="max-width: 800px; margin: 0 auto; font-size: 0.9em; line-height: 1.6;">
+                <p style="margin-bottom: 10px; font-weight: bold; color: #ffa500;">⚠️ EDUCATIONAL PURPOSE DISCLAIMER</p>
+                <p style="margin-bottom: 15px;">
+                    This dashboard is provided <strong>for educational purposes only</strong> and is not intended as financial advice. 
+                    All trading signals, indicators, and analysis are for informational purposes only.
+                </p>
+                <p style="margin-bottom: 15px;">
+                    <strong>Trading cryptocurrencies and financial instruments involves substantial risk</strong> and may not be suitable for all investors. 
+                    You should carefully consider your financial situation and risk tolerance before making any trading decisions.
+                </p>
+                <p style="margin-bottom: 15px;">
+                    <strong>We are not responsible for any financial losses</strong> that may result from the use of this information. 
+                    Always conduct your own research and consult with qualified financial advisors before making investment decisions.
+                </p>
+                <p style="margin-bottom: 0; font-size: 0.8em; color: rgba(255, 255, 255, 0.5);">
+                    <strong>USE AT YOUR OWN RISK</strong> • Site developed for educational analysis • Not financial advice
+                </p>
+            </div>
+        </div>
+    </footer>
     
     <!-- Load Enhanced Dashboard JavaScript -->
     <script src="enhanced-dashboard.js?v=20.0"></script>

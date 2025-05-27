@@ -1,0 +1,12 @@
+{
+  "name": "financial-screener-dashboard",
+  "version": "1.0.0",
+  "description": "Advanced Financial Dashboard with Oscillator Analysis",
+  "main": "enhanced-dashboard.html",
+  "scripts": {
+    "start": "python api.py"
+  },
+  "engines": {
+    "node": ">=14.x"
+  }
+} 
