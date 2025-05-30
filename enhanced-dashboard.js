@@ -173,7 +173,7 @@ function validateAndMapInterval(interval, period) {
     }
     
     // Check period compatibility for intraday data
-    if (intervalConfig.type === 'intraday') {
+    if (intervalConfig && intervalConfig.type === 'intraday') {
         const problematicPeriods = ['1y', '2y', '5y', 'max'];
         if (problematicPeriods.includes(period)) {
             return {
@@ -187,9 +187,9 @@ function validateAndMapInterval(interval, period) {
     
     return {
         valid: true,
-        eodhd: intervalConfig.eodhd,
-        type: intervalConfig.type,
-        maxPeriod: intervalConfig.maxPeriod
+        eodhd: (intervalConfig ? intervalConfig.eodhd : interval),
+        type: (intervalConfig ? intervalConfig.type : 'aggregated'),
+        maxPeriod: (intervalConfig ? intervalConfig.maxPeriod : 'max')
     };
 }
 
