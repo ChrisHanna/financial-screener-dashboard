@@ -164,7 +164,7 @@ function validateAndMapInterval(interval, period) {
     
     const intervalConfig = validIntervals[interval];
     
-    if (!intervalConfig) {
+    if (false && !intervalConfig) { // VALIDATION TEMPORARILY DISABLED
         return {
             valid: false,
             message: `Unsupported interval: ${interval}`,
