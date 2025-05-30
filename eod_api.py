@@ -7,6 +7,20 @@ import time
 import os
 from dotenv import load_dotenv
 
+# Import aggregation functionality
+try:
+    from timeframe_aggregator import (
+        get_aggregator, 
+        should_aggregate_interval, 
+        get_base_interval_for_aggregation,
+        get_extended_period_for_aggregation
+    )
+    AGGREGATION_AVAILABLE = True
+    logging.info("Timeframe aggregation module loaded in EOD API")
+except ImportError:
+    AGGREGATION_AVAILABLE = False
+    logging.warning("Timeframe aggregation module not available in EOD API")
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -33,12 +47,70 @@ class EODDataProvider:
         
     def fetch_stock_data(self, ticker, period='1y', interval='1d'):
         """
-        Fetch stock data from EOD Historical Data API
+        Fetch stock data from EOD Historical Data API with aggregation support
         
         Args:
             ticker: Stock ticker symbol (e.g., 'AAPL', 'BTC-USD')
             period: Data period ('1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'max')
-            interval: Data interval ('1m', '5m', '15m', '30m', '1h', '1d')
+            interval: Data interval ('1m', '5m', '15m', '30m', '1h', '3h', '6h', '1d', '2d', '3d')
+            
+        Returns:
+            DataFrame with OHLCV data or None if failed
+        """
+        try:
+            # Check if we need aggregation
+            needs_aggregation = False
+            original_interval = interval
+            
+            if AGGREGATION_AVAILABLE and should_aggregate_interval(interval):
+                needs_aggregation = True
+                base_interval = get_base_interval_for_aggregation(interval)
+                extended_period = get_extended_period_for_aggregation(period, interval)
+                
+                self.logger.info(f"Will aggregate {base_interval} -> {interval} for {ticker}")
+                
+                # Fetch base interval data with extended period
+                df = self._fetch_base_data(ticker, extended_period, base_interval)
+                
+                if df is None or df.empty:
+                    self.logger.warning(f"No base data available for aggregation")
+                    return None
+                
+                # Perform aggregation
+                aggregator = get_aggregator()
+                df = aggregator.aggregate_ohlcv(df, original_interval, ticker)
+                
+            else:
+                # Direct fetch without aggregation
+                df = self._fetch_base_data(ticker, period, interval)
+            
+            if df is None or df.empty:
+                return None
+            
+            # Add metadata
+            df.attrs['company_name'] = ticker
+            df.attrs['original_interval'] = original_interval
+            df.attrs['was_aggregated'] = needs_aggregation
+            
+            if needs_aggregation:
+                df.attrs['base_interval'] = base_interval
+                df.attrs['aggregation_method'] = 'smart_timeframe_aggregator'
+                
+            self.logger.info(f"Successfully fetched {len(df)} rows for {ticker} ({original_interval})")
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching data for {ticker}: {str(e)}")
+            return None
+    
+    def _fetch_base_data(self, ticker, period, interval):
+        """
+        Fetch base data from EOD API (no aggregation)
+        
+        Args:
+            ticker: Stock ticker symbol
+            period: Data period
+            interval: Data interval (must be supported by EOD)
             
         Returns:
             DataFrame with OHLCV data or None if failed
@@ -50,39 +122,37 @@ class EODDataProvider:
             # Convert ticker format
             eod_symbol = self._convert_ticker_format(ticker)
             
-            self.logger.info(f"Fetching EOD data for {eod_symbol}, period: {period}, interval: {interval}")
+            self.logger.info(f"Fetching EOD base data for {eod_symbol}, period: {period}, interval: {interval}")
+            
+            # Map our intervals to EOD supported intervals
+            eod_interval_map = {
+                '1m': '1m',
+                '5m': '5m', 
+                '15m': '15m',
+                '30m': '30m',
+                '1h': '1h',
+                '1d': 'd',
+                '1wk': 'w',
+                '1mo': 'm'
+            }
+            
+            if interval not in eod_interval_map:
+                self.logger.error(f"Unsupported base interval for EOD API: {interval}")
+                return None
+            
+            eod_interval = eod_interval_map[interval]
             
             if interval in ['1m', '5m', '15m', '30m', '1h']:
                 # Use intraday API for short intervals
-                df = self._fetch_intraday_data(eod_symbol, interval, from_date, to_date)
+                df = self._fetch_intraday_data(eod_symbol, eod_interval, from_date, to_date)
             else:
                 # Use end-of-day API for daily and longer intervals
                 df = self._fetch_eod_data(eod_symbol, from_date, to_date)
             
-            if df is None or df.empty:
-                self.logger.warning(f"No data returned for {ticker}")
-                return None
-                
-            # Add company information
-            # DISABLED: Fundamentals API call causing 403 errors - using ticker as company name instead
-            # try:
-            #     # Try to get fundamental data for company name
-            #     fundamentals = self.api.get_fundamentals_data(ticker=eod_symbol)
-            #     if fundamentals and 'General' in fundamentals:
-            #         df.attrs['company_name'] = fundamentals['General'].get('Name', ticker)
-            #     else:
-            #         df.attrs['company_name'] = ticker
-            # except:
-            #     df.attrs['company_name'] = ticker
-            
-            # Use ticker as company name (no fundamentals API call)
-            df.attrs['company_name'] = ticker
-                
-            self.logger.info(f"Successfully fetched {len(df)} rows for {ticker}")
             return df
             
         except Exception as e:
-            self.logger.error(f"Error fetching data for {ticker}: {str(e)}")
+            self.logger.error(f"Error fetching base data: {str(e)}")
             return None
     
     def _convert_ticker_format(self, ticker):

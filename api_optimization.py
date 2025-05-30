@@ -13,6 +13,19 @@ from scipy.signal import argrelextrema
 from numba import jit, njit
 import warnings
 
+# Import timeframe aggregation functionality
+try:
+    from timeframe_aggregator import (
+        should_aggregate_interval,
+        get_base_interval_for_aggregation,
+        aggregate_timeframe
+    )
+    TIMEFRAME_AGGREGATION_AVAILABLE = True
+    logging.info("Timeframe aggregation available in optimization module")
+except ImportError:
+    TIMEFRAME_AGGREGATION_AVAILABLE = False
+    logging.warning("Timeframe aggregation not available in optimization module")
+
 logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
 

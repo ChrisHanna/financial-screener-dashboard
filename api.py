@@ -11,9 +11,23 @@ import concurrent.futures
 import time
 import os
 
-# Configure logging
+# Configure logging first
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Import aggregation functionality
+try:
+    from timeframe_aggregator import (
+        should_aggregate_interval, 
+        get_base_interval_for_aggregation,
+        get_extended_period_for_aggregation,
+        aggregate_timeframe
+    )
+    TIMEFRAME_AGGREGATION_AVAILABLE = True
+    logger.info("Timeframe aggregation module loaded successfully")
+except ImportError:
+    TIMEFRAME_AGGREGATION_AVAILABLE = False
+    logger.warning("Timeframe aggregation module not available")
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)  # Allow cross-origin requests
@@ -68,28 +82,23 @@ class NpEncoder(json.JSONEncoder):
 # Configure Flask to use our custom JSON encoder
 app.json_encoder = NpEncoder
 
-# Valid intervals and periods for yfinance
-VALID_INTERVALS = ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '4h', '8h', '12h', '1d', '5d', '1wk', '1mo', '3mo']
+# Valid intervals and periods for yfinance - UPDATED to match dashboard support
+VALID_INTERVALS = [
+    '15m', '30m', '1h', '3h', '6h', '1d', '2d', '3d', '1wk'
+]
 VALID_PERIODS = ['1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'ytd', 'max']
 
-# Define limits for different intervals
+# Define limits for different intervals - UPDATED to match dashboard intervals
 INTERVAL_LIMITS = {
-    '1m': '7d',  # 1-minute data limited to 7 days
-    '2m': '60d',
-    '5m': '60d',
     '15m': '60d',
     '30m': '60d',
-    '60m': '730d',
-    '90m': '60d',
     '1h': '730d',
-    '4h': '730d',  # Added 4-hour interval
-    '8h': '730d',  # Added 8-hour interval
-    '12h': '730d', # Added 12-hour interval
+    '3h': '730d',   # NEW - aggregated from 1h
+    '6h': '730d',   # NEW - aggregated from 1h
     '1d': 'max',
-    '5d': 'max',
-    '1wk': 'max',
-    '1mo': 'max',
-    '3mo': 'max'
+    '2d': 'max',    # NEW - aggregated from 1d
+    '3d': 'max',    # NEW - aggregated from 1d
+    '1wk': 'max'
 }
 
 # Simple cache implementation for ticker data to improve performance
@@ -98,13 +107,14 @@ CACHE_TTL = 300  # Cache TTL in seconds (5 minutes)
 
 def fetch_stock_data(ticker, period='1y', interval='1d', max_retries=3, retry_delay=2, use_cache=True):
     """
-    Enhanced fetch stock data function with improved error handling and caching support
+    Enhanced fetch stock data function with comprehensive aggregation support
     Now supports both Yahoo Finance (yfinance) and EOD Historical Data API
+    Plus new aggregated intervals: 3h, 6h (from 1h) and 2d, 3d (from 1d)
     
     Args:
         ticker: Stock ticker symbol
         period: Data period (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
-        interval: Data interval (1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo)
+        interval: Data interval (15m, 30m, 1h, 3h, 6h, 1d, 2d, 3d, 1wk)
         max_retries: Maximum number of retry attempts
         retry_delay: Delay between retries in seconds
         use_cache: Whether to use cached data (for compatibility)
@@ -127,58 +137,78 @@ def fetch_stock_data(ticker, period='1y', interval='1d', max_retries=3, retry_de
             logger.error(f"EOD API failed for {ticker}: {e}")
             logger.info("Falling back to yfinance...")
     
-    # Fall back to yfinance or use as primary
+    # Fall back to yfinance or use as primary with aggregation support
     logger.info(f"Using yfinance for {ticker}")
+    
+    # Check if we need aggregation for yfinance
+    needs_aggregation = False
+    original_interval = interval
+    base_interval = interval
+    
+    if TIMEFRAME_AGGREGATION_AVAILABLE and should_aggregate_interval(interval):
+        needs_aggregation = True
+        base_interval = get_base_interval_for_aggregation(interval)
+        extended_period = get_extended_period_for_aggregation(period, interval)
+        
+        logger.info(f"Will aggregate {base_interval} -> {interval} for {ticker}")
+        
+        # Use extended period and base interval for fetching
+        fetch_period = extended_period
+        fetch_interval = base_interval
+    else:
+        fetch_period = period
+        fetch_interval = interval
     
     for attempt in range(max_retries):
         try:
-            logger.info(f"Fetching data for {ticker}, period: {period}, interval: {interval} (attempt {attempt+1}/{max_retries})")
+            logger.info(f"Fetching data for {ticker}, period: {fetch_period}, interval: {fetch_interval} (attempt {attempt+1}/{max_retries})")
             
-            # Validate interval
-            if interval not in VALID_INTERVALS:
-                logger.warning(f"Invalid interval: {interval}, defaulting to 1d")
-                interval = '1d'
+            # Validate interval - use base intervals for fetching
+            valid_base_intervals = ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo', '3mo']
+            if fetch_interval not in valid_base_intervals:
+                logger.warning(f"Invalid fetch interval: {fetch_interval}, defaulting to 1d")
+                fetch_interval = '1d'
                 
             # Validate period
-            if period not in VALID_PERIODS:
-                logger.warning(f"Invalid period: {period}, defaulting to 1y")
-                period = '1y'
+            if fetch_period not in VALID_PERIODS:
+                logger.warning(f"Invalid period: {fetch_period}, defaulting to 1y")
+                fetch_period = '1y'
                 
             # Check if the requested period exceeds the limit for the interval
-            if interval in INTERVAL_LIMITS:
-                max_period = INTERVAL_LIMITS[interval]
-                if max_period in VALID_PERIODS and VALID_PERIODS.index(period) > VALID_PERIODS.index(max_period):
-                    logger.warning(f"Period '{period}' exceeds limit for interval '{interval}', using {max_period} instead")
-                    period = max_period
+            if fetch_interval in INTERVAL_LIMITS:
+                max_period = INTERVAL_LIMITS[fetch_interval]
+                if max_period in VALID_PERIODS and VALID_PERIODS.index(fetch_period) > VALID_PERIODS.index(max_period):
+                    logger.warning(f"Period '{fetch_period}' exceeds limit for interval '{fetch_interval}', using {max_period} instead")
+                    fetch_period = max_period
 
             # For short timeframes, ensure we include the current day's data
             # by using a slightly extended period for intraday data
-            if interval in ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '4h', '8h', '12h']:
+            if fetch_interval in ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h']:
                 # If requested period is 1d, use '2d' to ensure we get current day + previous day
                 # for better context
-                if period == '1d':
+                if fetch_period == '1d':
                     logger.info(f"Extending period from '1d' to '2d' for intraday data to include current day")
-                    period = '2d'
+                    fetch_period = '2d'
                 # For 5d, extend to 7d to get full week + weekend
-                elif period == '5d':
+                elif fetch_period == '5d':
                     logger.info(f"Extending period from '5d' to '7d' for intraday data to include full week")
-                    period = '7d'
+                    fetch_period = '7d'
             
-            # Handle custom intervals not directly supported by yfinance
+            # Handle existing custom intervals (4h, 8h, 12h) with traditional resampling
             custom_resampling = None
-            original_interval = interval
+            traditional_resampling_interval = fetch_interval
             
-            if interval == '4h':
+            if fetch_interval == '4h':
                 # Use 1h data and resample
-                interval = '1h'
+                fetch_interval = '1h'
                 custom_resampling = '4H'
-            elif interval == '8h':
+            elif fetch_interval == '8h':
                 # Use 1h data and resample
-                interval = '1h'
+                fetch_interval = '1h'
                 custom_resampling = '8H'
-            elif interval == '12h':
+            elif fetch_interval == '12h':
                 # Use 1h data and resample
-                interval = '1h'
+                fetch_interval = '1h'
                 custom_resampling = '12H'
             
             # Set timeout for yfinance request to prevent hanging
@@ -189,15 +219,15 @@ def fetch_stock_data(ticker, period='1y', interval='1d', max_retries=3, retry_de
             stock = yf.Ticker(ticker)
             
             # Fetch historical data - remove unsupported parameters
-            df = stock.history(period=period, interval=interval)
+            df = stock.history(period=fetch_period, interval=fetch_interval)
             
             if df is None or df.empty:
-                logger.warning(f"No data returned for {ticker} with period={period}, interval={interval}")
+                logger.warning(f"No data returned for {ticker} with period={fetch_period}, interval={fetch_interval}")
                 continue
             
-            # Apply resampling for custom intervals
+            # Apply traditional resampling for existing custom intervals (4h, 8h, 12h)
             if custom_resampling and not df.empty:
-                logger.info(f"Resampling data from {interval} to {original_interval}")
+                logger.info(f"Traditional resampling data from {fetch_interval} to {traditional_resampling_interval}")
                 df = df.resample(custom_resampling).agg({
                     'Open': 'first',
                     'High': 'max',
@@ -205,6 +235,15 @@ def fetch_stock_data(ticker, period='1y', interval='1d', max_retries=3, retry_de
                     'Close': 'last',
                     'Volume': 'sum'
                 }).dropna()
+            
+            # Apply new smart aggregation for new intervals (3h, 6h, 2d, 3d)
+            elif needs_aggregation and TIMEFRAME_AGGREGATION_AVAILABLE and not df.empty:
+                logger.info(f"Smart aggregating data from {fetch_interval} to {original_interval}")
+                df = aggregate_timeframe(df, original_interval, ticker)
+                
+                if df.empty:
+                    logger.warning(f"Aggregation resulted in empty dataset")
+                    continue
             
             if df.empty:
                 logger.warning(f"No data returned for {ticker}")
@@ -234,7 +273,7 @@ def fetch_stock_data(ticker, period='1y', interval='1d', max_retries=3, retry_de
                 df[critical_cols] = df[critical_cols].fillna(method='ffill').fillna(method='bfill')
             
             # For intraday data, ensure we have the date component in the index
-            if interval in ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h']:
+            if original_interval in ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '3h', '4h', '6h', '8h', '12h']:
                 # Keep the existing datetime index but ensure it's timezone-aware
                 if df.index.tzinfo is None:
                     df.index = df.index.tz_localize('UTC')
@@ -253,6 +292,16 @@ def fetch_stock_data(ticker, period='1y', interval='1d', max_retries=3, retry_de
                     df.attrs['industry'] = info['industry']
             except:
                 df.attrs['company_name'] = ticker
+            
+            # Add aggregation metadata
+            df.attrs['original_interval'] = original_interval
+            df.attrs['was_aggregated'] = needs_aggregation or custom_resampling is not None
+            if needs_aggregation:
+                df.attrs['base_interval'] = base_interval
+                df.attrs['aggregation_method'] = 'smart_timeframe_aggregator'
+            elif custom_resampling:
+                df.attrs['base_interval'] = '1h'
+                df.attrs['aggregation_method'] = 'traditional_resampling'
                 
             return df
             
@@ -1786,7 +1835,7 @@ def get_analyzer_b_data():
         
         # Validate parameters
         valid_periods = ['1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'ytd', 'max']
-        valid_intervals = ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo', '3mo']
+        valid_intervals = ['15m', '30m', '1h', '3h', '6h', '1d', '2d', '3d', '1wk']
         
         if period not in valid_periods:
             return jsonify({
@@ -1884,7 +1933,13 @@ def get_analyzer_b_data():
             'optimized': use_optimized and OPTIMIZATION_AVAILABLE,
             'cache_used': not force_refresh,
             'processing_time': None,  # Could add timing if needed
-            'data_quality_issues': issues if OPTIMIZATION_AVAILABLE and not is_valid else []
+            'data_quality_issues': issues if OPTIMIZATION_AVAILABLE and not is_valid else [],
+            # NEW: Aggregation information
+            'was_aggregated': df.attrs.get('was_aggregated', False),
+            'base_interval': df.attrs.get('base_interval', interval),
+            'original_interval': df.attrs.get('original_interval', interval),
+            'aggregation_method': df.attrs.get('aggregation_method', None),
+            'timeframe_aggregation_available': TIMEFRAME_AGGREGATION_AVAILABLE
         }
         
         return jsonify(result)
@@ -2168,12 +2223,12 @@ except ImportError:
 @performance_monitor
 def analyzer_b_optimized(ticker, period='1mo', interval='1d', use_cache=True, force_refresh=False):
     """
-    Optimized version of analyzer_b with improved performance and reliability
+    Optimized version of analyzer_b with improved performance, reliability, and aggregation support
     
     Args:
         ticker: Stock ticker symbol
         period: Data period (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max)
-        interval: Data interval (1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo)
+        interval: Data interval (15m, 30m, 1h, 3h, 6h, 1d, 2d, 3d, 1wk)
         use_cache: Whether to use cached data
         force_refresh: Force refresh of cached data
         
