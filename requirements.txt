@@ -13,3 +13,4 @@ ruptures==1.1.7
 hmmlearn==0.3.0
 scikit-learn==1.4.2
 statsmodels==0.14.0
+numba
